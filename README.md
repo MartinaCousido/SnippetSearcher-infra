@@ -111,7 +111,7 @@ Este repo es para los ambientes desplegados. Para desarrollar en tu máquina a p
 
 ## Flujo de trabajo
 
-Igual que en el resto de los repos (ver [`CLAUDE.md` de SnippetSearcher](https://github.com/MartinaCousido/SnippetSearcher/blob/main/CLAUDE.md)):
+Es el mismo en los tres repos. La versión completa (cómo se mergea y cómo están protegidas `dev` y `main`) está en el [Flujo de trabajo de SnippetSearcher](https://github.com/MartinaCousido/SnippetSearcher#flujo-de-trabajo), que es la fuente de verdad:
 
 ```
 feature/<descripcion>  ──PR──▶  dev  ──PR──▶  main
