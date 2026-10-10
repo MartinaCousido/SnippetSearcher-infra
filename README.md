@@ -50,10 +50,10 @@ Coincide con el flujo de trabajo de los repos: lo que se prueba en dev llega a p
 
 | Servicio | Repo | Estado |
 |---|---|---|
-| Snippet Service | [SnippetSearcher](https://github.com/MartinaCousido/SnippetSearcher) | A sumar |
-| Postgres `snippets` | — (imagen oficial `postgres:17`) | A sumar |
-| Permission Service | [SnippetPermission](https://github.com/MartinaCousido/SnippetPermission) | A sumar |
-| Postgres `permisos` | — (imagen oficial `postgres:17`) | A sumar |
+| `snippet-service` | [SnippetSearcher](https://github.com/MartinaCousido/SnippetSearcher) | ✅ En el stack. Único servicio con puerto público (`80`) |
+| `snippets-db` | — (imagen oficial `postgres:17`) | ✅ En el stack |
+| `permission-service` | [SnippetPermission](https://github.com/MartinaCousido/SnippetPermission) | ✅ En el stack |
+| `permisos-db` | — (imagen oficial `postgres:17`) | ✅ En el stack |
 | PrintScript | Usa la librería [ingsis-interpreter](https://github.com/ingsis-ua/ingsis-interpreter) | ⏳ Pendiente: dónde vive el servicio que la expone por HTTP |
 | Asset Service + bucket | — | ⏳ Pendiente: si lo provee la cátedra o se implementa |
 
@@ -68,11 +68,32 @@ Coincide con el flujo de trabajo de los repos: lo que se prueba en dev llega a p
 | Visibilidad de las imágenes | ✅ Definido | **Públicas.** La VM las descarga sin login ni token. Los repos también son públicos, así que no se expone nada nuevo |
 | Puerto 80 de la VM | ✅ Definido | Lo atiende **Snippet Service directo** (`80:8080` en el stack). Permission Service y las bases no se exponen: solo se ven por la red interna |
 | Tags de las imágenes | ✅ Definido | Dos tags por imagen: el del ambiente y el del commit. Ver [Tags de las imágenes](#tags-de-las-imágenes) |
+| Credenciales de las bases | ✅ Definido | El nombre y el usuario de cada base son fijos en el stack (`snippets` y `permisos`), porque no son secretos. Solo la **contraseña** va por variable. Ver [Variables del stack](#variables-del-stack) |
 | Deploy | ✅ Definido | Automático con GitHub Actions; nunca a mano en la VM |
 | PrintScript | ⏳ Pendiente | Si el servicio que envuelve la librería va en un repo propio o dentro de otro |
 | Asset Service / bucket | ⏳ Pendiente | Si lo provee la cátedra o se implementa |
 | Reverse proxy | ⏳ Pendiente | Ver [Reverse proxy (pendiente)](#reverse-proxy-pendiente) |
-| Secrets | ⏳ Pendiente | Qué secrets de GitHub hacen falta (IP de cada VM, clave SSH, credenciales de las bases) y sus nombres |
+| Secrets | ⏳ Pendiente | Nombres de los secrets de GitHub para la VM (IP, usuario, clave SSH). Se definen en #7. Las contraseñas de las bases son `SNIPPETS_DB_PASSWORD` y `PERMISOS_DB_PASSWORD` |
+
+### Variables del stack
+
+`docker-stack.yml` es el mismo para dev y prod. Lo que cambia entre ambientes son tres variables:
+
+| Variable | Para qué | Ejemplo |
+|---|---|---|
+| `TAG` | Tag de las imágenes de los servicios | `dev` o `prod` |
+| `SNIPPETS_DB_PASSWORD` | Contraseña de la base de Snippet Service | — |
+| `PERMISOS_DB_PASSWORD` | Contraseña de la base de Permission Service | — |
+
+En las VMs, las pone el workflow de CD desde los secrets del *Environment* de GitHub (`dev` o `prod`). Si falta alguna, el deploy se corta con un error que dice cuál.
+
+Para validar el stack en tu máquina:
+
+```bash
+cp .env.example .env
+set -a; source .env; set +a
+docker stack config -c docker-stack.yml
+```
 
 ### Tags de las imágenes
 
