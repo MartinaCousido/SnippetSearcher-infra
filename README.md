@@ -65,11 +65,33 @@ Coincide con el flujo de trabajo de los repos: lo que se prueba en dev llega a p
 | Ambientes | ✅ Definido | Dos VMs en Azure, **dev** y **prod**, con lo mismo. Lo indica la cátedra |
 | Rama por ambiente | ✅ Definido | `dev` → VM de dev, `main` → VM de prod |
 | Registry de imágenes | ✅ Definido | GHCR (GitHub Container Registry) |
+| Visibilidad de las imágenes | ✅ Definido | **Públicas.** La VM las descarga sin login ni token. Los repos también son públicos, así que no se expone nada nuevo |
+| Puerto 80 de la VM | ✅ Definido | Lo atiende **Snippet Service directo** (`80:8080` en el stack). Permission Service y las bases no se exponen: solo se ven por la red interna |
+| Tags de las imágenes | ✅ Definido | Dos tags por imagen: el del ambiente y el del commit. Ver [Tags de las imágenes](#tags-de-las-imágenes) |
 | Deploy | ✅ Definido | Automático con GitHub Actions; nunca a mano en la VM |
 | PrintScript | ⏳ Pendiente | Si el servicio que envuelve la librería va en un repo propio o dentro de otro |
 | Asset Service / bucket | ⏳ Pendiente | Si lo provee la cátedra o se implementa |
-| Reverse proxy | ⏳ Pendiente | Qué expone el puerto 80 de la VM y cómo enruta a cada servicio |
+| Reverse proxy | ⏳ Pendiente | Ver [Reverse proxy (pendiente)](#reverse-proxy-pendiente) |
 | Secrets | ⏳ Pendiente | Qué secrets de GitHub hacen falta (IP de cada VM, clave SSH, credenciales de las bases) y sus nombres |
+
+### Tags de las imágenes
+
+Cada push a `dev` o `main` publica la imagen del servicio con **dos tags a la vez**:
+
+| Tag | Ejemplo | Para qué sirve |
+|---|---|---|
+| Ambiente | `ghcr.io/martinacousido/snippet-service:dev` o `:prod` | Cada VM pide el tag de su ambiente. Así dev y prod quedan separados: lo que se mergea a `dev` no llega a prod hasta el PR `dev` → `main` |
+| Commit | `ghcr.io/martinacousido/snippet-service:sha-95da21f` | Es único por push. Dice exactamente qué código corre y permite volver a una versión anterior desplegando su `sha-` |
+
+No se usa `latest`: no distingue ambientes y no permite saber qué versión está corriendo.
+
+### Reverse proxy (pendiente)
+
+Hoy el puerto 80 lo atiende Snippet Service directo, porque es lo único que hay que exponer.
+
+Cuando se sume la **UI web** (la provee la cátedra) y el login con **Auth0**, va a haber más de una cosa para exponer con un solo puerto. Ahí hace falta un *reverse proxy* (por ejemplo, nginx): recibe todo en el puerto 80 y deriva cada pedido al servicio que corresponde según la URL.
+
+Queda para hacer **cuando la cátedra dé la UI y las herramientas necesarias** para configurarlo como corresponde. Agregarlo no rompe nada: se suma el proxy al stack y se le saca el puerto 80 a Snippet Service.
 
 ## Preparar una VM
 
