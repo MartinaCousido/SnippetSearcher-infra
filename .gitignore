@@ -1,0 +1,8 @@
+# Variables con datos reales: nunca se commitean (el repo es público).
+.env
+
+# Claves SSH de las VMs.
+*.pem
+
+# Configuración del IDE.
+.idea/
