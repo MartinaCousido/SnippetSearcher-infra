@@ -1,0 +1,89 @@
+# Despliega todo el stack en la VM del ambiente en cada push a dev o main.
+#   push a dev  → Environment dev  → VM de dev
+#   push a main → Environment prod → VM de prod
+#
+# Secrets de cada Environment:
+#   VM_HOST               IP pública de la VM.
+#   VM_USER               Usuario de la VM (azureuser).
+#   VM_SSH_KEY            Contenido de la clave .pem de la VM.
+#   SNIPPETS_DB_PASSWORD  Contraseña de la base de Snippet Service.
+#   PERMISOS_DB_PASSWORD  Contraseña de la base de Permission Service.
+name: CD
+
+on:
+  push:
+    branches: [dev, main]
+
+# Un deploy por ambiente a la vez. No se cancela uno a mitad de camino.
+concurrency:
+  group: cd-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  desplegar-stack:
+    runs-on: ubuntu-latest
+    environment: ${{ github.ref_name == 'main' && 'prod' || 'dev' }}
+    env:
+      TAG: ${{ github.ref_name == 'main' && 'prod' || 'dev' }}
+      SNIPPETS_DB_PASSWORD: ${{ secrets.SNIPPETS_DB_PASSWORD }}
+      PERMISOS_DB_PASSWORD: ${{ secrets.PERMISOS_DB_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validar el stack
+        run: docker stack config -c docker-stack.yml > /dev/null
+
+      - name: Preparar la conexión SSH
+        env:
+          VM_HOST: ${{ secrets.VM_HOST }}
+          VM_SSH_KEY: ${{ secrets.VM_SSH_KEY }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$VM_SSH_KEY" > ~/.ssh/vm.pem
+          chmod 600 ~/.ssh/vm.pem
+          ssh-keyscan -T 15 -H "$VM_HOST" >> ~/.ssh/known_hosts
+
+      - name: Copiar docker-stack.yml a la VM
+        env:
+          VM: ${{ secrets.VM_USER }}@${{ secrets.VM_HOST }}
+        run: |
+          ssh -i ~/.ssh/vm.pem "$VM" 'mkdir -p ~/snippet-searcher'
+          scp -i ~/.ssh/vm.pem docker-stack.yml "$VM:~/snippet-searcher/docker-stack.yml"
+
+      - name: Desplegar el stack
+        env:
+          VM: ${{ secrets.VM_USER }}@${{ secrets.VM_HOST }}
+        # Las variables viajan por la entrada estándar, no en la línea de
+        # comandos: así las contraseñas no quedan en el historial de la VM.
+        # --prune borra los servicios que ya no están en el stack.
+        run: |
+          printf 'TAG=%s\nSNIPPETS_DB_PASSWORD=%s\nPERMISOS_DB_PASSWORD=%s\n' \
+            "$TAG" "$SNIPPETS_DB_PASSWORD" "$PERMISOS_DB_PASSWORD" |
+          ssh -i ~/.ssh/vm.pem "$VM" '
+            set -e
+            set -a; . /dev/stdin; set +a
+            cd ~/snippet-searcher
+            docker stack deploy -c docker-stack.yml --prune --detach=true snippet-searcher
+          '
+
+      - name: Esperar a que los servicios estén arriba
+        env:
+          VM: ${{ secrets.VM_USER }}@${{ secrets.VM_HOST }}
+        # Espera hasta 5 minutos a que cada servicio tenga sus réplicas
+        # corriendo (1/1). Si no llega, el workflow falla.
+        run: |
+          ssh -i ~/.ssh/vm.pem "$VM" '
+            for i in $(seq 1 30); do
+              pendientes=$(docker service ls --filter label=com.docker.stack.namespace=snippet-searcher \
+                --format "{{.Replicas}}" | awk -F/ "\$1 != \$2" | wc -l)
+              if [ "$pendientes" -eq 0 ]; then
+                docker service ls --filter label=com.docker.stack.namespace=snippet-searcher
+                exit 0
+              fi
+              sleep 10
+            done
+            echo "Hay servicios que no arrancaron:"
+            docker service ls --filter label=com.docker.stack.namespace=snippet-searcher
+            docker stack ps snippet-searcher --no-trunc | head -20
+            exit 1
+          '
