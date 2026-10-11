@@ -73,7 +73,7 @@ Coincide con el flujo de trabajo de los repos: lo que se prueba en dev llega a p
 | PrintScript | ⏳ Pendiente | Si el servicio que envuelve la librería va en un repo propio o dentro de otro |
 | Asset Service / bucket | ⏳ Pendiente | Si lo provee la cátedra o se implementa |
 | Reverse proxy | ⏳ Pendiente | Ver [Reverse proxy (pendiente)](#reverse-proxy-pendiente) |
-| Secrets | ⏳ Pendiente | Nombres de los secrets de GitHub para la VM (IP, usuario, clave SSH). Se definen en #7. Las contraseñas de las bases son `SNIPPETS_DB_PASSWORD` y `PERMISOS_DB_PASSWORD` |
+| Secrets | ✅ Definido | Cinco secrets en cada *Environment* de GitHub (`dev` y `prod`). Ver [Secrets](#secrets) |
 
 ### Variables del stack
 
@@ -113,6 +113,33 @@ Hoy el puerto 80 lo atiende Snippet Service directo, porque es lo único que hay
 Cuando se sume la **UI web** (la provee la cátedra) y el login con **Auth0**, va a haber más de una cosa para exponer con un solo puerto. Ahí hace falta un *reverse proxy* (por ejemplo, nginx): recibe todo en el puerto 80 y deriva cada pedido al servicio que corresponde según la URL.
 
 Queda para hacer **cuando la cátedra dé la UI y las herramientas necesarias** para configurarlo como corresponde. Agregarlo no rompe nada: se suma el proxy al stack y se le saca el puerto 80 a Snippet Service.
+
+## Secrets
+
+Viven en los *Environments* `dev` y `prod` de este repo (**Settings → Environments**). Cada Environment tiene los mismos nombres, con los valores de su VM. `dev` solo acepta deploys desde la rama `dev`, y `prod` solo desde `main`.
+
+| Secret | Qué es |
+|---|---|
+| `VM_HOST` | IP pública de la VM |
+| `VM_USER` | Usuario de la VM (`azureuser`) |
+| `VM_SSH_KEY` | Contenido completo de la clave `.pem` de la VM |
+| `SNIPPETS_DB_PASSWORD` | Contraseña de la base de Snippet Service |
+| `PERMISOS_DB_PASSWORD` | Contraseña de la base de Permission Service |
+
+- Las contraseñas solo pueden tener letras, números, `-`, `_` y `.`: el deploy las lee como variables de la terminal.
+- Postgres toma la contraseña solo cuando crea la base. Cambiarla después obliga a borrar el volumen de la base en la VM, y con él los datos.
+
+## Deploy automático
+
+`.github/workflows/cd.yml` corre en cada push a `dev` o `main`:
+
+1. Valida `docker-stack.yml` con `docker stack config`.
+2. Entra a la VM por SSH con `VM_SSH_KEY`.
+3. Copia `docker-stack.yml` a `~/snippet-searcher/` en la VM.
+4. Corre `docker stack deploy --prune` con las variables del ambiente. `--prune` borra los servicios que ya no estén en el stack.
+5. Espera hasta 5 minutos a que cada servicio esté en `1/1`. Si no llega, el workflow falla y muestra qué servicio no arrancó.
+
+Para que funcione, **la VM tiene que estar prendida**. Si estaba apagada, se prende desde el portal de Azure y se vuelve a correr el workflow desde la pestaña *Actions* (**Re-run jobs**).
 
 ## Preparar una VM
 
