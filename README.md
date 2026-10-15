@@ -56,6 +56,7 @@ Coincide con el flujo de trabajo de los repos: lo que se prueba en dev llega a p
 | `permisos-db` | — (imagen oficial `postgres:17`) | ✅ En el stack |
 | PrintScript | Usa la librería [ingsis-interpreter](https://github.com/ingsis-ua/ingsis-interpreter) | ⏳ Pendiente: dónde vive el servicio que la expone por HTTP |
 | Asset Service + bucket | — | ⏳ Pendiente: si lo provee la cátedra o se implementa |
+| UI web | [SnippetSearcher-ui](https://github.com/MartinaCousido/SnippetSearcher-ui) | ⏳ Pendiente: todavía no tiene imagen Docker ni está en el stack. Ver [Reverse proxy (pendiente)](#reverse-proxy-pendiente) |
 
 ## Decisiones técnicas
 
