@@ -54,8 +54,8 @@ Coincide con el flujo de trabajo de los repos: lo que se prueba en dev llega a p
 | `snippets-db` | — (imagen oficial `postgres:17`) | ✅ En el stack |
 | `permission-service` | [SnippetPermission](https://github.com/MartinaCousido/SnippetPermission) | ✅ En el stack |
 | `permisos-db` | — (imagen oficial `postgres:17`) | ✅ En el stack |
-| PrintScript | Usa la librería [ingsis-interpreter](https://github.com/ingsis-ua/ingsis-interpreter) | ⏳ Pendiente: dónde vive el servicio que la expone por HTTP |
-| Asset Service + bucket | — | ⏳ Pendiente: si lo provee la cátedra o se implementa |
+| PrintScript | Usa la librería [PrintScript](https://github.com/MartinaCousido/PrintScript) (`0.3.0`) | ⏳ Pendiente: dónde vive el servicio que la expone por HTTP (se consulta con la cátedra) |
+| `asset-service` + `azurite` | [asset-service](https://github.com/austral-ingsis/asset-service) de la cátedra (imagen `ghcr.io/austral-ingsis/snippet-asset-service`) y la imagen oficial de Azurite | ⏳ Pendiente: sumarlos al stack (#14) |
 | UI web | [SnippetSearcher-ui](https://github.com/MartinaCousido/SnippetSearcher-ui) | ⏳ Pendiente: todavía no tiene imagen Docker ni está en el stack. Ver [Reverse proxy (pendiente)](#reverse-proxy-pendiente) |
 
 ## Decisiones técnicas
@@ -71,8 +71,8 @@ Coincide con el flujo de trabajo de los repos: lo que se prueba en dev llega a p
 | Tags de las imágenes | ✅ Definido | Dos tags por imagen: el del ambiente y el del commit. Ver [Tags de las imágenes](#tags-de-las-imágenes) |
 | Credenciales de las bases | ✅ Definido | El nombre y el usuario de cada base son fijos en el stack (`snippets` y `permisos`), porque no son secretos. Solo la **contraseña** va por variable. Ver [Variables del stack](#variables-del-stack) |
 | Deploy | ✅ Definido | Automático con GitHub Actions; nunca a mano en la VM |
-| PrintScript | ⏳ Pendiente | Si el servicio que envuelve la librería va en un repo propio o dentro de otro |
-| Asset Service / bucket | ⏳ Pendiente | Si lo provee la cátedra o se implementa |
+| PrintScript | ⏳ Pendiente | Si el servicio que envuelve la librería va en un repo propio o dentro del repo [PrintScript](https://github.com/MartinaCousido/PrintScript). Se consulta con la cátedra |
+| Asset Service / bucket | ✅ Definido | Lo provee la cátedra: el Asset Service sobre un bucket emulado con **Azurite**. Ver [Snippet Storage](https://github.com/MartinaCousido/SnippetSearcher#decisiones-técnicas) en SnippetSearcher. Sumarlo al stack es #14 |
 | Reverse proxy | ⏳ Pendiente | Ver [Reverse proxy (pendiente)](#reverse-proxy-pendiente) |
 | Secrets | ✅ Definido | Cinco secrets en cada *Environment* de GitHub (`dev` y `prod`). Ver [Secrets](#secrets) |
 
