@@ -56,7 +56,7 @@ Coincide con el flujo de trabajo de los repos: lo que se prueba en dev llega a p
 | `permisos-db` | — (imagen oficial `postgres:17`) | ✅ En el stack |
 | `printscript-service` | [SnippetPrintScript](https://github.com/MartinaCousido/SnippetPrintScript), que usa la librería [PrintScript](https://github.com/MartinaCousido/PrintScript) (`0.3.0`) | ✅ En el stack. Sin puerto público: Snippet Service lo llama en `http://printscript-service:8080` (variable `PRINTSCRIPT_SERVICE_URL`) |
 | `asset-service` + `azurite` | [asset-service](https://github.com/austral-ingsis/asset-service) de la cátedra (imagen `ghcr.io/austral-ingsis/snippet-asset-service`) y la imagen oficial de Azurite | ⏳ Pendiente: sumarlos al stack (#14) |
-| UI web | [SnippetSearcher-ui](https://github.com/MartinaCousido/SnippetSearcher-ui) | ⏳ Pendiente: todavía no tiene imagen Docker ni está en el stack. Ver [Reverse proxy (pendiente)](#reverse-proxy-pendiente) |
+| UI web | [SnippetSearcher-ui](https://github.com/MartinaCousido/SnippetSearcher-ui) | ⏳ Pendiente: todavía no tiene imagen Docker ni está en el stack. La va a servir el reverse proxy. Ver [Reverse proxy](#reverse-proxy) |
 
 ## Decisiones técnicas
 
@@ -73,7 +73,7 @@ Coincide con el flujo de trabajo de los repos: lo que se prueba en dev llega a p
 | Deploy | ✅ Definido | Automático con GitHub Actions; nunca a mano en la VM |
 | PrintScript | ✅ Definido | Repo propio, [SnippetPrintScript](https://github.com/MartinaCousido/SnippetPrintScript), con el mismo flujo de deploy que los otros servicios. Ver [Servicio de PrintScript](https://github.com/MartinaCousido/SnippetSearcher#decisiones-técnicas) en SnippetSearcher |
 | Asset Service / bucket | ✅ Definido | Lo provee la cátedra: el Asset Service sobre un bucket emulado con **Azurite**. Ver [Snippet Storage](https://github.com/MartinaCousido/SnippetSearcher#decisiones-técnicas) en SnippetSearcher. Sumarlo al stack es #14 |
-| Reverse proxy | ⏳ Pendiente | Ver [Reverse proxy (pendiente)](#reverse-proxy-pendiente) |
+| Reverse proxy | ✅ Definido (falta implementarlo) | **nginx** en el puerto 80. Ver [Reverse proxy](#reverse-proxy) |
 | Secrets | ✅ Definido | Cinco secrets en cada *Environment* de GitHub (`dev` y `prod`). Ver [Secrets](#secrets) |
 
 ### Variables del stack
@@ -107,13 +107,23 @@ Cada push a `dev` o `main` publica la imagen del servicio con **dos tags a la ve
 
 No se usa `latest`: no distingue ambientes y no permite saber qué versión está corriendo.
 
-### Reverse proxy (pendiente)
+### Reverse proxy
 
-Hoy el puerto 80 lo atiende Snippet Service directo, porque es lo único que hay que exponer.
+Hoy el puerto 80 lo atiende Snippet Service directo. Se va a reemplazar por un **reverse proxy con nginx**: un servicio más del stack que recibe todo en el puerto 80 y le pasa cada pedido al servicio que corresponde según la ruta.
 
-Cuando se sume la **UI web** (la provee la cátedra) y el login con **Auth0**, va a haber más de una cosa para exponer con un solo puerto. Ahí hace falta un *reverse proxy* (por ejemplo, nginx): recibe todo en el puerto 80 y deriva cada pedido al servicio que corresponde según la URL.
+| Ruta | Va a |
+|---|---|
+| `/api/snippets…`, `/api/rules…`, `/api/languages` | `snippet-service` |
+| `/api/permissions…` | `permission-service` |
+| todo lo demás | la UI web (archivos estáticos) |
 
-Queda para hacer **cuando la cátedra dé la UI y las herramientas necesarias** para configurarlo como corresponde. Agregarlo no rompe nada: se suma el proxy al stack y se le saca el puerto 80 a Snippet Service.
+- El proxy saca el `/api` antes de pasar el pedido: los servicios no conocen ese prefijo.
+- La UI tiene una sola `BACKEND_URL` (`http://<vm>/api`) y queda en la misma dirección que los servicios, así que no hace falta CORS.
+- Más adelante, el proxy es también el lugar para HTTPS, que probablemente pida el login con Auth0.
+
+La decisión y el contrato completo están en [Contrato con la UI](https://github.com/MartinaCousido/SnippetSearcher#contrato-con-la-ui) de SnippetSearcher.
+
+**Falta implementarlo.** Hace falta una imagen Docker de la UI y el servicio de nginx en el stack. Al sumarlo, Snippet Service deja de publicar el puerto 80.
 
 ## Secrets
 
