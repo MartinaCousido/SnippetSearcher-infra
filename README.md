@@ -54,7 +54,7 @@ Coincide con el flujo de trabajo de los repos: lo que se prueba en dev llega a p
 | `snippets-db` | — (imagen oficial `postgres:17`) | ✅ En el stack |
 | `permission-service` | [SnippetPermission](https://github.com/MartinaCousido/SnippetPermission) | ✅ En el stack |
 | `permisos-db` | — (imagen oficial `postgres:17`) | ✅ En el stack |
-| `printscript-service` | [SnippetPrintScript](https://github.com/MartinaCousido/SnippetPrintScript), que usa la librería [PrintScript](https://github.com/MartinaCousido/PrintScript) (`0.3.0`) | ⏳ Pendiente: sumarlo al stack cuando tenga imagen. Imagen `ghcr.io/martinacousido/printscript-service`; Snippet Service lo llama en `http://printscript-service:8080` (variable `PRINTSCRIPT_SERVICE_URL`) |
+| `printscript-service` | [SnippetPrintScript](https://github.com/MartinaCousido/SnippetPrintScript), que usa la librería [PrintScript](https://github.com/MartinaCousido/PrintScript) (`0.3.0`) | ✅ En el stack. Sin puerto público: Snippet Service lo llama en `http://printscript-service:8080` (variable `PRINTSCRIPT_SERVICE_URL`) |
 | `asset-service` + `azurite` | [asset-service](https://github.com/austral-ingsis/asset-service) de la cátedra (imagen `ghcr.io/austral-ingsis/snippet-asset-service`) y la imagen oficial de Azurite | ⏳ Pendiente: sumarlos al stack (#14) |
 | UI web | [SnippetSearcher-ui](https://github.com/MartinaCousido/SnippetSearcher-ui) | ⏳ Pendiente: todavía no tiene imagen Docker ni está en el stack. Ver [Reverse proxy (pendiente)](#reverse-proxy-pendiente) |
 
