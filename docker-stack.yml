@@ -21,6 +21,7 @@ services:
       DB_USER: snippets
       DB_PASSWORD: ${SNIPPETS_DB_PASSWORD:?Falta SNIPPETS_DB_PASSWORD}
       PERMISSION_SERVICE_URL: http://permission-service:8080
+      PRINTSCRIPT_SERVICE_URL: http://printscript-service:8080
     networks:
       - snippet-net
     deploy:
@@ -37,6 +38,17 @@ services:
       DB_URL: jdbc:postgresql://permisos-db:5432/permisos
       DB_USER: permisos
       DB_PASSWORD: ${PERMISOS_DB_PASSWORD:?Falta PERMISOS_DB_PASSWORD}
+    networks:
+      - snippet-net
+    deploy:
+      restart_policy:
+        condition: on-failure
+        delay: 10s
+
+  printscript-service:
+    image: ghcr.io/martinacousido/printscript-service:${TAG:?Falta TAG (dev o prod)}
+    # Sin puertos: solo lo llama Snippet Service, por la red interna.
+    # No tiene base de datos.
     networks:
       - snippet-net
     deploy:
