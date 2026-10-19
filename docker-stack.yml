@@ -22,6 +22,7 @@ services:
       DB_PASSWORD: ${SNIPPETS_DB_PASSWORD:?Falta SNIPPETS_DB_PASSWORD}
       PERMISSION_SERVICE_URL: http://permission-service:8080
       PRINTSCRIPT_SERVICE_URL: http://printscript-service:8080
+      ASSET_SERVICE_URL: http://asset-service:8080
     networks:
       - snippet-net
     deploy:
@@ -56,6 +57,39 @@ services:
         condition: on-failure
         delay: 10s
 
+  # Snippet Storage: guarda el código de los snippets como archivos.
+  # Lo provee la cátedra (github.com/austral-ingsis/asset-service). La imagen
+  # es pública. Sin puertos: solo lo llama Snippet Service.
+  asset-service:
+    image: ghcr.io/austral-ingsis/snippet-asset-service:main.14
+    environment:
+      AZURE_HOST: http://azurite
+      # La imagen trae el agente de New Relic (monitoreo); no se usa.
+      NEW_RELIC_AGENT_ENABLED: "false"
+      NEW_RELIC_APP_NAME: asset-service
+    networks:
+      - snippet-net
+    healthcheck:
+      test: ["CMD", "curl", "-fs", "http://localhost:9090/actuator/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      # Spring Boot tarda en arrancar: los chequeos fallidos no cuentan antes.
+      start_period: 60s
+    deploy:
+      restart_policy:
+        condition: on-failure
+        delay: 10s
+
+  # El bucket: emula Azure Blob Storage. Solo lo usa el Asset Service.
+  azurite:
+    image: mcr.microsoft.com/azure-storage/azurite:3.37.0
+    command: azurite-blob --blobHost 0.0.0.0 --location /data
+    volumes:
+      - azurite-data:/data
+    networks:
+      - snippet-net
+
   snippets-db:
     image: postgres:17
     # Sin puertos: la base no se expone fuera del stack.
@@ -84,7 +118,8 @@ networks:
   snippet-net:
     driver: overlay
 
-# Los datos de las bases sobreviven a cada deploy.
+# Los datos de las bases y los archivos del bucket sobreviven a cada deploy.
 volumes:
   snippets-data:
   permisos-data:
+  azurite-data:

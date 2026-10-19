@@ -55,7 +55,7 @@ Coincide con el flujo de trabajo de los repos: lo que se prueba en dev llega a p
 | `permission-service` | [SnippetPermission](https://github.com/MartinaCousido/SnippetPermission) | ✅ En el stack |
 | `permisos-db` | — (imagen oficial `postgres:17`) | ✅ En el stack |
 | `printscript-service` | [SnippetPrintScript](https://github.com/MartinaCousido/SnippetPrintScript), que usa la librería [PrintScript](https://github.com/MartinaCousido/PrintScript) (`0.3.0`) | ✅ En el stack. Sin puerto público: Snippet Service lo llama en `http://printscript-service:8080` (variable `PRINTSCRIPT_SERVICE_URL`) |
-| `asset-service` + `azurite` | [asset-service](https://github.com/austral-ingsis/asset-service) de la cátedra (imagen `ghcr.io/austral-ingsis/snippet-asset-service`) y la imagen oficial de Azurite | ⏳ Pendiente: sumarlos al stack (#14) |
+| `asset-service` + `azurite` | [asset-service](https://github.com/austral-ingsis/asset-service) de la cátedra (imagen `ghcr.io/austral-ingsis/snippet-asset-service`) y la imagen oficial de Azurite | ✅ En el stack (`main.14` y Azurite `3.37.0`). Sin puertos públicos: Snippet Service lo llama en `http://asset-service:8080` (variable `ASSET_SERVICE_URL`). Los archivos quedan en el volumen `azurite-data` |
 | UI web | [SnippetSearcher-ui](https://github.com/MartinaCousido/SnippetSearcher-ui) | ⏳ Pendiente: todavía no tiene imagen Docker ni está en el stack. La va a servir el reverse proxy. Ver [Reverse proxy](#reverse-proxy) |
 
 ## Decisiones técnicas
@@ -72,7 +72,7 @@ Coincide con el flujo de trabajo de los repos: lo que se prueba en dev llega a p
 | Credenciales de las bases | ✅ Definido | El nombre y el usuario de cada base son fijos en el stack (`snippets` y `permisos`), porque no son secretos. Solo la **contraseña** va por variable. Ver [Variables del stack](#variables-del-stack) |
 | Deploy | ✅ Definido | Automático con GitHub Actions; nunca a mano en la VM |
 | PrintScript | ✅ Definido | Repo propio, [SnippetPrintScript](https://github.com/MartinaCousido/SnippetPrintScript), con el mismo flujo de deploy que los otros servicios. Ver [Servicio de PrintScript](https://github.com/MartinaCousido/SnippetSearcher#decisiones-técnicas) en SnippetSearcher |
-| Asset Service / bucket | ✅ Definido | Lo provee la cátedra: el Asset Service sobre un bucket emulado con **Azurite**. Ver [Snippet Storage](https://github.com/MartinaCousido/SnippetSearcher#decisiones-técnicas) en SnippetSearcher. Sumarlo al stack es #14 |
+| Asset Service / bucket | ✅ Definido | Lo provee la cátedra: el Asset Service sobre un bucket emulado con **Azurite**. Ver [Snippet Storage](https://github.com/MartinaCousido/SnippetSearcher#decisiones-técnicas) en SnippetSearcher. En el stack desde #14 |
 | Reverse proxy | ✅ Definido (falta implementarlo) | **nginx** en el puerto 80. Ver [Reverse proxy](#reverse-proxy) |
 | Secrets | ✅ Definido | Cinco secrets en cada *Environment* de GitHub (`dev` y `prod`). Ver [Secrets](#secrets) |
 
