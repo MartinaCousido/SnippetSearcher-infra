@@ -23,6 +23,8 @@ services:
       PERMISSION_SERVICE_URL: http://permission-service:8080
       PRINTSCRIPT_SERVICE_URL: http://printscript-service:8080
       ASSET_SERVICE_URL: http://asset-service:8080
+      # Spring Boot lee esta variable solo: no hace falta configurarla en el servicio.
+      SPRING_DATA_REDIS_HOST: redis
     networks:
       - snippet-net
     deploy:
@@ -90,6 +92,18 @@ services:
     networks:
       - snippet-net
 
+  # Cola de mensajes (Redis Streams) para lintear y formatear en segundo plano.
+  # Solo la usa Snippet Service. Sin puertos: solo por la red interna.
+  redis:
+    image: redis:8.2
+    # appendonly guarda cada mensaje en disco: si Redis se reinicia, los
+    # mensajes pendientes siguen ahí y se pueden reintentar.
+    command: redis-server --appendonly yes
+    volumes:
+      - redis-data:/data
+    networks:
+      - snippet-net
+
   snippets-db:
     image: postgres:17
     # Sin puertos: la base no se expone fuera del stack.
@@ -118,8 +132,10 @@ networks:
   snippet-net:
     driver: overlay
 
-# Los datos de las bases y los archivos del bucket sobreviven a cada deploy.
+# Los datos de las bases, los archivos del bucket y los mensajes de Redis
+# sobreviven a cada deploy.
 volumes:
   snippets-data:
   permisos-data:
   azurite-data:
+  redis-data:
