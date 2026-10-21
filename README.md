@@ -50,14 +50,15 @@ Coincide con el flujo de trabajo de los repos: lo que se prueba en dev llega a p
 
 | Servicio | Repo | Estado |
 |---|---|---|
-| `snippet-service` | [SnippetSearcher](https://github.com/MartinaCousido/SnippetSearcher) | ✅ En el stack. Único servicio con puerto público (`80`) |
+| `proxy` | — (imagen oficial `nginx:1.30-alpine`) | ✅ En el stack. Reverse proxy: **único servicio con puerto público** (`80`). Ver [Reverse proxy](#reverse-proxy) |
+| `ui` | [SnippetSearcher-ui](https://github.com/MartinaCousido/SnippetSearcher-ui) | ✅ En el stack (`ghcr.io/martinacousido/snippet-ui`). Sin puertos: el proxy le pasa `/`. La imagen la publica el repo de la UI ([SnippetSearcher-ui#10](https://github.com/MartinaCousido/SnippetSearcher-ui/issues/10)) |
+| `snippet-service` | [SnippetSearcher](https://github.com/MartinaCousido/SnippetSearcher) | ✅ En el stack. Sin puertos: el proxy le pasa `/api/` |
 | `snippets-db` | — (imagen oficial `postgres:17`) | ✅ En el stack |
-| `permission-service` | [SnippetPermission](https://github.com/MartinaCousido/SnippetPermission) | ✅ En el stack |
+| `permission-service` | [SnippetPermission](https://github.com/MartinaCousido/SnippetPermission) | ✅ En el stack. Sin puertos: el proxy le pasa `/api/permissions/` |
 | `permisos-db` | — (imagen oficial `postgres:17`) | ✅ En el stack |
 | `printscript-service` | [SnippetPrintScript](https://github.com/MartinaCousido/SnippetPrintScript), que usa la librería [PrintScript](https://github.com/MartinaCousido/PrintScript) (`0.3.0`) | ✅ En el stack. Sin puerto público: Snippet Service lo llama en `http://printscript-service:8080` (variable `PRINTSCRIPT_SERVICE_URL`) |
 | `asset-service` + `azurite` | [asset-service](https://github.com/austral-ingsis/asset-service) de la cátedra (imagen `ghcr.io/austral-ingsis/snippet-asset-service`) y la imagen oficial de Azurite | ✅ En el stack (`main.14` y Azurite `3.37.0`). Sin puertos públicos: Snippet Service lo llama en `http://asset-service:8080` (variable `ASSET_SERVICE_URL`). Los archivos quedan en el volumen `azurite-data` |
 | `redis` | — (imagen oficial `redis:8.2`) | ✅ En el stack. Cola de mensajes (Redis Streams) de Snippet Service, que la encuentra con `SPRING_DATA_REDIS_HOST`. Con `appendonly` y el volumen `redis-data`: los mensajes pendientes sobreviven a un reinicio. Sin puertos públicos |
-| UI web | [SnippetSearcher-ui](https://github.com/MartinaCousido/SnippetSearcher-ui) | ⏳ Pendiente: todavía no tiene imagen Docker ni está en el stack. La va a servir el reverse proxy. Ver [Reverse proxy](#reverse-proxy) |
 
 ## Decisiones técnicas
 
@@ -68,13 +69,13 @@ Coincide con el flujo de trabajo de los repos: lo que se prueba en dev llega a p
 | Rama por ambiente | ✅ Definido | `dev` → VM de dev, `main` → VM de prod |
 | Registry de imágenes | ✅ Definido | GHCR (GitHub Container Registry) |
 | Visibilidad de las imágenes | ✅ Definido | **Públicas.** La VM las descarga sin login ni token. Los repos también son públicos, así que no se expone nada nuevo |
-| Puerto 80 de la VM | ✅ Definido | Lo atiende **Snippet Service directo** (`80:8080` en el stack). Permission Service y las bases no se exponen: solo se ven por la red interna |
+| Puerto 80 de la VM | ✅ Definido | Lo atiende el **`proxy`** (nginx), el único servicio con puertos públicos. Los demás servicios y las bases no se exponen: solo se ven por la red interna |
 | Tags de las imágenes | ✅ Definido | Dos tags por imagen: el del ambiente y el del commit. Ver [Tags de las imágenes](#tags-de-las-imágenes) |
 | Credenciales de las bases | ✅ Definido | El nombre y el usuario de cada base son fijos en el stack (`snippets` y `permisos`), porque no son secretos. Solo la **contraseña** va por variable. Ver [Variables del stack](#variables-del-stack) |
 | Deploy | ✅ Definido | Automático con GitHub Actions; nunca a mano en la VM |
 | PrintScript | ✅ Definido | Repo propio, [SnippetPrintScript](https://github.com/MartinaCousido/SnippetPrintScript), con el mismo flujo de deploy que los otros servicios. Ver [Servicio de PrintScript](https://github.com/MartinaCousido/SnippetSearcher#decisiones-técnicas) en SnippetSearcher |
 | Asset Service / bucket | ✅ Definido | Lo provee la cátedra: el Asset Service sobre un bucket emulado con **Azurite**. Ver [Snippet Storage](https://github.com/MartinaCousido/SnippetSearcher#decisiones-técnicas) en SnippetSearcher. En el stack desde #14 |
-| Reverse proxy | ✅ Definido (falta implementarlo) | **nginx** en el puerto 80. Ver [Reverse proxy](#reverse-proxy) |
+| Reverse proxy | ✅ Definido | **nginx** en el puerto 80, con la configuración como Swarm `configs`. Ver [Reverse proxy](#reverse-proxy) |
 | Secrets | ✅ Definido | Cinco secrets en cada *Environment* de GitHub (`dev` y `prod`). Ver [Secrets](#secrets) |
 
 ### Variables del stack
@@ -110,21 +111,35 @@ No se usa `latest`: no distingue ambientes y no permite saber qué versión est�
 
 ### Reverse proxy
 
-Hoy el puerto 80 lo atiende Snippet Service directo. Se va a reemplazar por un **reverse proxy con nginx**: un servicio más del stack que recibe todo en el puerto 80 y le pasa cada pedido al servicio que corresponde según la ruta.
+El servicio `proxy` es un **nginx** que recibe todo en el puerto 80 y le pasa cada pedido al servicio que corresponde según la ruta. Sigue el modelo de la demo de la cátedra, [austral-ingsis/nginx-docker](https://github.com/austral-ingsis/nginx-docker). Las rutas están en [`nginx/default.conf`](nginx/default.conf).
 
-| Ruta | Va a |
-|---|---|
-| `/api/snippets…`, `/api/rules…`, `/api/languages` | `snippet-service` |
-| `/api/permissions…` | `permission-service` |
-| todo lo demás | la UI web (archivos estáticos) |
+| Ruta | Va a | Ejemplo |
+|---|---|---|
+| `/api/permissions/…` | `permission-service` | `/api/permissions/snippets` → `/permissions/snippets` |
+| `/api/…` (`snippets`, `rules`, `languages`) | `snippet-service` | `/api/snippets` → `/snippets` |
+| todo lo demás | `ui` | `/snippet/<id>` → `/snippet/<id>` |
 
 - El proxy saca el `/api` antes de pasar el pedido: los servicios no conocen ese prefijo.
 - La UI tiene una sola `BACKEND_URL` (`http://<vm>/api`) y queda en la misma dirección que los servicios, así que no hace falta CORS.
-- Más adelante, el proxy es también el lugar para HTTPS, que probablemente pida el login con Auth0.
+- Le pasa al servicio los headers `Host`, `X-Forwarded-For` (la IP del usuario) y `X-Forwarded-Proto` (si entró por HTTP o HTTPS).
+- Acepta pedidos de hasta **5 MB** (`client_max_body_size`), para crear snippets desde un archivo (US-1). nginx trae 1 MB por defecto.
+- Si un servicio está caído, responde **502** o **504** con una página propia ([`nginx/errores/no-disponible.html`](nginx/errores/no-disponible.html)), y el resto sigue andando. Espera hasta 5 segundos para conectarse a un servicio (`proxy_connect_timeout`), en lugar de los 60 que trae nginx.
+- Más adelante, el proxy es también el lugar para HTTPS ([#24](https://github.com/MartinaCousido/SnippetSearcher-infra/issues/24)).
 
 La decisión y el contrato completo están en [Contrato con la UI](https://github.com/MartinaCousido/SnippetSearcher#contrato-con-la-ui) de SnippetSearcher.
 
-**Falta implementarlo.** Hace falta una imagen Docker de la UI y el servicio de nginx en el stack. Al sumarlo, Snippet Service deja de publicar el puerto 80.
+#### Cambiar la configuración del proxy
+
+Los archivos de `nginx/` entran al contenedor como **Swarm `configs`**: Swarm guarda una copia en la VM y no deja cambiarla. Por eso, cada vez que se edita un archivo de `nginx/`, hay que subir la versión de su nombre en `docker-stack.yml`:
+
+```yaml
+configs:
+  proxy_conf:
+    name: snippet-searcher_proxy_conf_v2   # antes _v1
+    file: ./nginx/default.conf
+```
+
+Si no se sube la versión, el deploy falla porque la config ya existe con otro contenido. Los archivos que no cambian quedan con su versión.
 
 ## Secrets
 
@@ -147,7 +162,7 @@ Viven en los *Environments* `dev` y `prod` de este repo (**Settings → Environm
 
 1. Valida `docker-stack.yml` con `docker stack config`.
 2. Entra a la VM por SSH con `VM_SSH_KEY`.
-3. Copia `docker-stack.yml` a `~/snippet-searcher/` en la VM.
+3. Copia `docker-stack.yml` y la carpeta `nginx/` a `~/snippet-searcher/` en la VM.
 4. Corre `docker stack deploy --prune` con las variables del ambiente. `--prune` borra los servicios que ya no estén en el stack.
 5. Espera hasta 5 minutos a que cada servicio esté en `1/1`. Si no llega, el workflow falla y muestra qué servicio no arrancó.
 

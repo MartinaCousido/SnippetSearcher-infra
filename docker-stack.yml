@@ -11,11 +11,39 @@
 version: "3.8"
 
 services:
+  # Reverse proxy: recibe todo en el puerto 80 y le pasa cada pedido al servicio
+  # que corresponde según la ruta. Es el único servicio con puertos públicos.
+  # Las rutas están en nginx/default.conf.
+  proxy:
+    image: nginx:1.30-alpine
+    ports:
+      - "80:80"
+    configs:
+      - source: proxy_conf
+        target: /etc/nginx/conf.d/default.conf
+      - source: pagina_no_disponible
+        target: /usr/share/nginx/html/errores/no-disponible.html
+    networks:
+      - snippet-net
+    deploy:
+      restart_policy:
+        condition: on-failure
+        delay: 10s
+
+  # UI web (github.com/MartinaCousido/SnippetSearcher-ui). Sin puertos: se llega
+  # a través del proxy, en /.
+  ui:
+    image: ghcr.io/martinacousido/snippet-ui:${TAG:?Falta TAG (dev o prod)}
+    networks:
+      - snippet-net
+    deploy:
+      restart_policy:
+        condition: on-failure
+        delay: 10s
+
   snippet-service:
     image: ghcr.io/martinacousido/snippet-service:${TAG:?Falta TAG (dev o prod)}
-    ports:
-      # Único puerto expuesto a internet (decisión D2).
-      - "80:8080"
+    # Sin puertos: se llega a través del proxy, en /api/.
     environment:
       DB_URL: jdbc:postgresql://snippets-db:5432/snippets
       DB_USER: snippets
@@ -36,7 +64,7 @@ services:
 
   permission-service:
     image: ghcr.io/martinacousido/permission-service:${TAG:?Falta TAG (dev o prod)}
-    # Sin puertos: solo se llega por la red interna.
+    # Sin puertos: se llega a través del proxy, en /api/permissions/.
     environment:
       DB_URL: jdbc:postgresql://permisos-db:5432/permisos
       DB_USER: permisos
@@ -139,3 +167,15 @@ volumes:
   permisos-data:
   azurite-data:
   redis-data:
+
+# Archivos de configuración del proxy. Swarm los guarda en la VM y no deja
+# cambiarlos: si se edita un archivo, hay que subir la versión de su nombre
+# (_v1 → _v2). Si no se sube, el deploy falla o la VM sigue con la versión
+# anterior. Los que no cambian quedan con su versión.
+configs:
+  proxy_conf:
+    name: snippet-searcher_proxy_conf_v1
+    file: ./nginx/default.conf
+  pagina_no_disponible:
+    name: snippet-searcher_pagina_no_disponible_v1
+    file: ./nginx/errores/no-disponible.html

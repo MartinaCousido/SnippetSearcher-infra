@@ -43,12 +43,14 @@ jobs:
           chmod 600 ~/.ssh/vm.pem
           ssh-keyscan -T 15 -H "$VM_HOST" >> ~/.ssh/known_hosts
 
-      - name: Copiar docker-stack.yml a la VM
+      - name: Copiar el stack y la configuración del proxy a la VM
         env:
           VM: ${{ secrets.VM_USER }}@${{ secrets.VM_HOST }}
+        # Se borra nginx/ antes de copiarla, para que no queden archivos viejos.
         run: |
-          ssh -i ~/.ssh/vm.pem "$VM" 'mkdir -p ~/snippet-searcher'
+          ssh -i ~/.ssh/vm.pem "$VM" 'mkdir -p ~/snippet-searcher && rm -rf ~/snippet-searcher/nginx'
           scp -i ~/.ssh/vm.pem docker-stack.yml "$VM:~/snippet-searcher/docker-stack.yml"
+          scp -r -i ~/.ssh/vm.pem nginx "$VM:~/snippet-searcher/nginx"
 
       - name: Desplegar el stack
         env:
