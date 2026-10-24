@@ -76,6 +76,8 @@ Coincide con el flujo de trabajo de los repos: lo que se prueba en dev llega a p
 | PrintScript | ✅ Definido | Repo propio, [SnippetPrintScript](https://github.com/MartinaCousido/SnippetPrintScript), con el mismo flujo de deploy que los otros servicios. Ver [Servicio de PrintScript](https://github.com/MartinaCousido/SnippetSearcher#decisiones-técnicas) en SnippetSearcher |
 | Asset Service / bucket | ✅ Definido | Lo provee la cátedra: el Asset Service sobre un bucket emulado con **Azurite**. Ver [Snippet Storage](https://github.com/MartinaCousido/SnippetSearcher#decisiones-técnicas) en SnippetSearcher. En el stack desde #14 |
 | Reverse proxy | ✅ Definido | **nginx** en el puerto 80, con la configuración como Swarm `configs`. Ver [Reverse proxy](#reverse-proxy) |
+| HTTPS | ✅ Definido (falta implementarlo) | **Let's Encrypt + DuckDNS**: `snippetsearcher-dev.duckdns.org` y `snippetsearcher-prod.duckdns.org`. El cifrado termina en el `proxy`, que suma el puerto 443; adentro de la red de Docker se sigue con HTTP. Se implementa en [#24](https://github.com/MartinaCousido/SnippetSearcher-infra/issues/24). Ver [HTTPS](https://github.com/MartinaCousido/SnippetSearcher#https) en SnippetSearcher |
+| CORS | ✅ Definido (falta implementarlo) | Snippet Service y Permission Service aceptan solo los origins de la variable `CORS_ALLOWED_ORIGINS`, que se pasa en el stack. Dev: el dominio de dev y `http://localhost:5173`. Prod: solo el dominio de prod. Ver [CORS](https://github.com/MartinaCousido/SnippetSearcher#cors) en SnippetSearcher |
 | Secrets | ✅ Definido | Cinco secrets en cada *Environment* de GitHub (`dev` y `prod`). Ver [Secrets](#secrets) |
 
 ### Variables del stack
@@ -120,7 +122,7 @@ El servicio `proxy` es un **nginx** que recibe todo en el puerto 80 y le pasa ca
 | todo lo demás | `ui` | `/snippet/<id>` → `/snippet/<id>` |
 
 - El proxy saca el `/api` antes de pasar el pedido: los servicios no conocen ese prefijo.
-- La UI tiene una sola `BACKEND_URL` (`http://<vm>/api`) y queda en la misma dirección que los servicios, así que no hace falta CORS.
+- La UI tiene una sola `BACKEND_URL` (`/api`, relativa a la página) y queda en la misma dirección que los servicios, así que el navegador no aplica CORS. Igual se configura en cada servicio: ver la fila **CORS** de [Decisiones técnicas](#decisiones-técnicas).
 - Le pasa al servicio los headers `Host`, `X-Forwarded-For` (la IP del usuario) y `X-Forwarded-Proto` (si entró por HTTP o HTTPS).
 - Acepta pedidos de hasta **5 MB** (`client_max_body_size`), para crear snippets desde un archivo (US-1). nginx trae 1 MB por defecto.
 - Si un servicio está caído, responde **502** o **504** con una página propia ([`nginx/errores/no-disponible.html`](nginx/errores/no-disponible.html)), y el resto sigue andando. Espera hasta 5 segundos para conectarse a un servicio (`proxy_connect_timeout`), en lugar de los 60 que trae nginx.
