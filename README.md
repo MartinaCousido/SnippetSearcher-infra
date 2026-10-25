@@ -154,7 +154,7 @@ Cómo se consigue el certificado:
 3. **Real.** `certbot` guarda el certificado en el volumen `certificados`. El proxy mira cada minuto si cambió ([`nginx/certificado.sh`](nginx/certificado.sh)) y recarga nginx, sin cortar.
 4. **Renovación.** Cada 12 horas, `certbot renew` renueva el certificado si le faltan menos de 30 días. El proxy lo nota igual que en el paso 3.
 
-- **Staging.** Con `STAGING: "1"` en el servicio `certbot`, se usa el servidor de pruebas de Let's Encrypt: no tiene límite de pedidos, pero el navegador no confía en su certificado. Al pasar a `"0"`, `certbot` pide el real y reemplaza el de pruebas.
+- **Staging.** El servicio `certbot` usa el servidor real de Let's Encrypt (`STAGING: "0"`). Con `"1"` usa el de pruebas: no tiene límite de pedidos, pero el navegador no confía en su certificado. Sirve para probar un cambio en el flujo. Al volver a `"0"`, `certbot` pide el real y reemplaza el de pruebas.
 - **HSTS.** El proxy le dice al navegador que use siempre HTTPS con el dominio, durante un año (`Strict-Transport-Security`).
 - **La clave privada** (`privkey.pem`) vive solo en el volumen `certificados` de la VM. Nunca se commitea ni sale de la VM.
 - La cuenta de Let's Encrypt se crea sin email.
