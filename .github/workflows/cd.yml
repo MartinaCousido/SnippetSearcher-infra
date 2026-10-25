@@ -28,6 +28,8 @@ jobs:
       # Origins que aceptan Snippet Service y Permission Service (ver CORS en
       # el README de SnippetSearcher). No es secreto: queda versionado acá.
       CORS_ALLOWED_ORIGINS: ${{ github.ref_name == 'main' && 'https://snippetsearcher-prod.duckdns.org' || 'https://snippetsearcher-dev.duckdns.org,http://localhost:5173' }}
+      # Dominio del ambiente, para el certificado de HTTPS y la redirección.
+      DOMINIO: ${{ github.ref_name == 'main' && 'snippetsearcher-prod.duckdns.org' || 'snippetsearcher-dev.duckdns.org' }}
       SNIPPETS_DB_PASSWORD: ${{ secrets.SNIPPETS_DB_PASSWORD }}
       PERMISOS_DB_PASSWORD: ${{ secrets.PERMISOS_DB_PASSWORD }}
     steps:
@@ -46,14 +48,16 @@ jobs:
           chmod 600 ~/.ssh/vm.pem
           ssh-keyscan -T 15 -H "$VM_HOST" >> ~/.ssh/known_hosts
 
-      - name: Copiar el stack y la configuración del proxy a la VM
+      - name: Copiar el stack y la configuración del proxy y de certbot a la VM
         env:
           VM: ${{ secrets.VM_USER }}@${{ secrets.VM_HOST }}
-        # Se borra nginx/ antes de copiarla, para que no queden archivos viejos.
+        # Se borran nginx/ y certbot/ antes de copiarlas, para que no queden archivos
+        # viejos.
         run: |
-          ssh -i ~/.ssh/vm.pem "$VM" 'mkdir -p ~/snippet-searcher && rm -rf ~/snippet-searcher/nginx'
+          ssh -i ~/.ssh/vm.pem "$VM" 'mkdir -p ~/snippet-searcher && rm -rf ~/snippet-searcher/nginx ~/snippet-searcher/certbot'
           scp -i ~/.ssh/vm.pem docker-stack.yml "$VM:~/snippet-searcher/docker-stack.yml"
           scp -r -i ~/.ssh/vm.pem nginx "$VM:~/snippet-searcher/nginx"
+          scp -r -i ~/.ssh/vm.pem certbot "$VM:~/snippet-searcher/certbot"
 
       - name: Liberar el puerto 80 de snippet-service
         env:
@@ -88,8 +92,8 @@ jobs:
         # comandos: así las contraseñas no quedan en el historial de la VM.
         # --prune borra los servicios que ya no están en el stack.
         run: |
-          printf 'TAG=%s\nSNIPPETS_DB_PASSWORD=%s\nPERMISOS_DB_PASSWORD=%s\nCORS_ALLOWED_ORIGINS=%s\n' \
-            "$TAG" "$SNIPPETS_DB_PASSWORD" "$PERMISOS_DB_PASSWORD" "$CORS_ALLOWED_ORIGINS" |
+          printf 'TAG=%s\nSNIPPETS_DB_PASSWORD=%s\nPERMISOS_DB_PASSWORD=%s\nCORS_ALLOWED_ORIGINS=%s\nDOMINIO=%s\n' \
+            "$TAG" "$SNIPPETS_DB_PASSWORD" "$PERMISOS_DB_PASSWORD" "$CORS_ALLOWED_ORIGINS" "$DOMINIO" |
           ssh -i ~/.ssh/vm.pem "$VM" '
             set -e
             set -a; . /dev/stdin; set +a

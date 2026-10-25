@@ -6,25 +6,62 @@
 #   TAG                   Tag de las imágenes: dev o prod.
 #   SNIPPETS_DB_PASSWORD  Contraseña de la base de Snippet Service.
 #   PERMISOS_DB_PASSWORD  Contraseña de la base de Permission Service.
+#   CORS_ALLOWED_ORIGINS  Origins que aceptan Snippet Service y Permission Service.
+#   DOMINIO               Dominio del ambiente, para el certificado y la redirección.
 #
 # Uso: docker stack deploy -c docker-stack.yml snippet-searcher
 version: "3.8"
 
 services:
-  # Reverse proxy: recibe todo en el puerto 80 y le pasa cada pedido al servicio
-  # que corresponde según la ruta. Es el único servicio con puertos públicos.
-  # Las rutas están en nginx/default.conf.
+  # Reverse proxy: recibe todo en los puertos 80 y 443 y le pasa cada pedido al
+  # servicio que corresponde según la ruta. Es el único servicio con puertos
+  # públicos. Las rutas están en nginx/default.conf.
   proxy:
     image: nginx:1.30-alpine
     ports:
       - "80:80"
+      - "443:443"
+    environment:
+      DOMINIO: ${DOMINIO:?Falta DOMINIO}
+      # La plantilla solo reemplaza ${DOMINIO}: las variables de nginx ($host…)
+      # quedan como están.
+      NGINX_ENVSUBST_FILTER: ^DOMINIO$$
     configs:
+      # La imagen oficial convierte las plantillas de /etc/nginx/templates en
+      # archivos de /etc/nginx/conf.d al arrancar.
       - source: proxy_conf
-        target: /etc/nginx/conf.d/default.conf
+        target: /etc/nginx/templates/default.conf.template
       - source: pagina_no_disponible
         target: /usr/share/nginx/html/errores/no-disponible.html
+      # Corre antes que nginx: elige el certificado y recarga nginx cuando cambia.
+      - source: proxy_certificado
+        target: /docker-entrypoint.d/40-certificado.sh
+        mode: 0555
+    volumes:
+      - certificados:/etc/letsencrypt:ro
+      - desafios-acme:/var/www/certbot:ro
     networks:
       - snippet-net
+    deploy:
+      restart_policy:
+        condition: on-failure
+        delay: 10s
+
+  # Consigue y renueva el certificado de Let's Encrypt (ver certbot/certbot.sh).
+  # Sin puertos: Let's Encrypt llega al desafío a través del proxy.
+  certbot:
+    image: certbot/certbot:v5.8.0
+    entrypoint: ["/bin/sh", "/certbot.sh"]
+    environment:
+      DOMINIO: ${DOMINIO:?Falta DOMINIO}
+      # 1 = servidor de pruebas de Let's Encrypt, sin límite de pedidos.
+      STAGING: "1"
+    configs:
+      - source: certbot_script
+        target: /certbot.sh
+    volumes:
+      - certificados:/etc/letsencrypt
+      - desafios-acme:/var/www/certbot
     deploy:
       restart_policy:
         condition: on-failure
@@ -169,6 +206,10 @@ volumes:
   permisos-data:
   azurite-data:
   redis-data:
+  # Certificados de Let's Encrypt y su clave privada. No salen de la VM.
+  certificados:
+  # Archivos del desafío de Let's Encrypt.
+  desafios-acme:
 
 # Archivos de configuración del proxy. Swarm los guarda en la VM y no deja
 # cambiarlos: si se edita un archivo, hay que subir la versión de su nombre
@@ -176,8 +217,14 @@ volumes:
 # anterior. Los que no cambian quedan con su versión.
 configs:
   proxy_conf:
-    name: snippet-searcher_proxy_conf_v1
+    name: snippet-searcher_proxy_conf_v2
     file: ./nginx/default.conf
   pagina_no_disponible:
     name: snippet-searcher_pagina_no_disponible_v1
     file: ./nginx/errores/no-disponible.html
+  proxy_certificado:
+    name: snippet-searcher_proxy_certificado_v1
+    file: ./nginx/certificado.sh
+  certbot_script:
+    name: snippet-searcher_certbot_script_v1
+    file: ./certbot/certbot.sh
