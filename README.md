@@ -120,11 +120,13 @@ El servicio `proxy` es un **nginx** que recibe todo en los puertos 80 y 443 y le
 
 | Ruta | Va a | Ejemplo |
 |---|---|---|
-| `/api/permissions/…` | `permission-service` | `/api/permissions/snippets` → `/permissions/snippets` |
+| `POST /api/permissions/<id>/share` | `permission-service` | `/api/permissions/<id>/share` → `/permissions/<id>/share` |
+| el resto de `/api/permissions/…` y `/api/actuator…` | — (404) | No se publican: ver abajo |
 | `/api/…` (`snippets`, `rules`, `languages`) | `snippet-service` | `/api/snippets` → `/snippets` |
 | todo lo demás | `ui` | `/snippet/<id>` → `/snippet/<id>` |
 
 - El proxy saca el `/api` antes de pasar el pedido: los servicios no conocen ese prefijo.
+- De Permission Service se publica solo **compartir**, que es lo único que usa la UI. Registrar owner, borrar permisos y "¿puede leer o escribir?" los usa Snippet Service por la red interna: si se pudieran llamar desde afuera, un usuario podría, por ejemplo, borrar los permisos de su snippet y dejarlo huérfano. Tampoco se publica el health de los servicios (`/api/actuator`), porque muestra datos internos; adentro de la red y en local sigue igual.
 - La UI tiene una sola `BACKEND_URL` (`/api`, relativa a la página) y queda en la misma dirección que los servicios, así que el navegador no aplica CORS. Igual se configura en cada servicio: ver la fila **CORS** de [Decisiones técnicas](#decisiones-técnicas).
 - Le pasa al servicio los headers `Host`, `X-Forwarded-For` (la IP del usuario) y `X-Forwarded-Proto` (si entró por HTTP o HTTPS).
 - Acepta pedidos de hasta **5 MB** (`client_max_body_size`), para crear snippets desde un archivo (US-1). nginx trae 1 MB por defecto.
