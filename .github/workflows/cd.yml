@@ -52,6 +52,23 @@ jobs:
           scp -i ~/.ssh/vm.pem docker-stack.yml "$VM:~/snippet-searcher/docker-stack.yml"
           scp -r -i ~/.ssh/vm.pem nginx "$VM:~/snippet-searcher/nginx"
 
+      - name: Liberar el puerto 80 de snippet-service
+        env:
+          VM: ${{ secrets.VM_USER }}@${{ secrets.VM_HOST }}
+        # Hasta #23, snippet-service publicaba el 80. Ahora es del proxy, pero
+        # docker stack deploy puede crear el proxy antes de sacarle el puerto a
+        # snippet-service, y falla. Por eso se le saca acá, antes del deploy.
+        # Si snippet-service ya no publica el 80, no hace nada.
+        run: |
+          ssh -i ~/.ssh/vm.pem "$VM" '
+            set -e
+            puertos=$(docker service inspect snippet-searcher_snippet-service \
+              --format "{{range .Endpoint.Spec.Ports}}{{.PublishedPort}} {{end}}" 2>/dev/null || true)
+            if echo "$puertos" | grep -qw 80; then
+              docker service update --publish-rm 80 snippet-searcher_snippet-service
+            fi
+          '
+
       - name: Desplegar el stack
         env:
           VM: ${{ secrets.VM_USER }}@${{ secrets.VM_HOST }}
