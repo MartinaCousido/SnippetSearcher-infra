@@ -51,6 +51,7 @@ services:
       PERMISSION_SERVICE_URL: http://permission-service:8080
       PRINTSCRIPT_SERVICE_URL: http://printscript-service:8080
       ASSET_SERVICE_URL: http://asset-service:8080
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:?Falta CORS_ALLOWED_ORIGINS}
       # Spring Boot lee esta variable solo: no hace falta configurarla en el servicio.
       SPRING_DATA_REDIS_HOST: redis
     networks:
@@ -69,6 +70,7 @@ services:
       DB_URL: jdbc:postgresql://permisos-db:5432/permisos
       DB_USER: permisos
       DB_PASSWORD: ${PERMISOS_DB_PASSWORD:?Falta PERMISOS_DB_PASSWORD}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:?Falta CORS_ALLOWED_ORIGINS}
     networks:
       - snippet-net
     deploy:

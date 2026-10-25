@@ -25,6 +25,9 @@ jobs:
     environment: ${{ github.ref_name == 'main' && 'prod' || 'dev' }}
     env:
       TAG: ${{ github.ref_name == 'main' && 'prod' || 'dev' }}
+      # Origins que aceptan Snippet Service y Permission Service (ver CORS en
+      # el README de SnippetSearcher). No es secreto: queda versionado acá.
+      CORS_ALLOWED_ORIGINS: ${{ github.ref_name == 'main' && 'https://snippetsearcher-prod.duckdns.org' || 'https://snippetsearcher-dev.duckdns.org,http://localhost:5173' }}
       SNIPPETS_DB_PASSWORD: ${{ secrets.SNIPPETS_DB_PASSWORD }}
       PERMISOS_DB_PASSWORD: ${{ secrets.PERMISOS_DB_PASSWORD }}
     steps:
@@ -85,8 +88,8 @@ jobs:
         # comandos: así las contraseñas no quedan en el historial de la VM.
         # --prune borra los servicios que ya no están en el stack.
         run: |
-          printf 'TAG=%s\nSNIPPETS_DB_PASSWORD=%s\nPERMISOS_DB_PASSWORD=%s\n' \
-            "$TAG" "$SNIPPETS_DB_PASSWORD" "$PERMISOS_DB_PASSWORD" |
+          printf 'TAG=%s\nSNIPPETS_DB_PASSWORD=%s\nPERMISOS_DB_PASSWORD=%s\nCORS_ALLOWED_ORIGINS=%s\n' \
+            "$TAG" "$SNIPPETS_DB_PASSWORD" "$PERMISOS_DB_PASSWORD" "$CORS_ALLOWED_ORIGINS" |
           ssh -i ~/.ssh/vm.pem "$VM" '
             set -e
             set -a; . /dev/stdin; set +a
