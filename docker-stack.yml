@@ -54,8 +54,9 @@ services:
     entrypoint: ["/bin/sh", "/certbot.sh"]
     environment:
       DOMINIO: ${DOMINIO:?Falta DOMINIO}
-      # 1 = servidor de pruebas de Let's Encrypt, sin límite de pedidos.
-      STAGING: "1"
+      # 0 = el servidor real de Let's Encrypt. 1 = el de pruebas, sin límite de
+      # pedidos, pero el navegador no confía en su certificado.
+      STAGING: "0"
     configs:
       - source: certbot_script
         target: /certbot.sh
