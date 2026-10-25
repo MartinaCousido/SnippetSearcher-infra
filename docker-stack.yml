@@ -218,7 +218,7 @@ volumes:
 # anterior. Los que no cambian quedan con su versión.
 configs:
   proxy_conf:
-    name: snippet-searcher_proxy_conf_v2
+    name: snippet-searcher_proxy_conf_v3
     file: ./nginx/default.conf
   pagina_no_disponible:
     name: snippet-searcher_pagina_no_disponible_v1
