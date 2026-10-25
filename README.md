@@ -77,20 +77,21 @@ Coincide con el flujo de trabajo de los repos: lo que se prueba en dev llega a p
 | Asset Service / bucket | ✅ Definido | Lo provee la cátedra: el Asset Service sobre un bucket emulado con **Azurite**. Ver [Snippet Storage](https://github.com/MartinaCousido/SnippetSearcher#decisiones-técnicas) en SnippetSearcher. En el stack desde #14 |
 | Reverse proxy | ✅ Definido | **nginx** en el puerto 80, con la configuración como Swarm `configs`. Ver [Reverse proxy](#reverse-proxy) |
 | HTTPS | ✅ Definido (falta implementarlo) | **Let's Encrypt + DuckDNS**: `snippetsearcher-dev.duckdns.org` y `snippetsearcher-prod.duckdns.org`. El cifrado termina en el `proxy`, que suma el puerto 443; adentro de la red de Docker se sigue con HTTP. Se implementa en [#24](https://github.com/MartinaCousido/SnippetSearcher-infra/issues/24). Ver [HTTPS](https://github.com/MartinaCousido/SnippetSearcher#https) en SnippetSearcher |
-| CORS | ✅ Definido (falta implementarlo) | Snippet Service y Permission Service aceptan solo los origins de la variable `CORS_ALLOWED_ORIGINS`, que se pasa en el stack. Dev: el dominio de dev y `http://localhost:5173`. Prod: solo el dominio de prod. Ver [CORS](https://github.com/MartinaCousido/SnippetSearcher#cors) en SnippetSearcher |
+| CORS | ✅ Definido | Snippet Service y Permission Service aceptan solo los origins de la variable `CORS_ALLOWED_ORIGINS`, que se pasa en el stack (ver [Variables del stack](#variables-del-stack)). Dev: el dominio de dev y `http://localhost:5173`. Prod: solo el dominio de prod. Ver [CORS](https://github.com/MartinaCousido/SnippetSearcher#cors) en SnippetSearcher |
 | Secrets | ✅ Definido | Cinco secrets en cada *Environment* de GitHub (`dev` y `prod`). Ver [Secrets](#secrets) |
 
 ### Variables del stack
 
-`docker-stack.yml` es el mismo para dev y prod. Lo que cambia entre ambientes son tres variables:
+`docker-stack.yml` es el mismo para dev y prod. Lo que cambia entre ambientes son cuatro variables:
 
 | Variable | Para qué | Ejemplo |
 |---|---|---|
 | `TAG` | Tag de las imágenes de los servicios | `dev` o `prod` |
 | `SNIPPETS_DB_PASSWORD` | Contraseña de la base de Snippet Service | — |
 | `PERMISOS_DB_PASSWORD` | Contraseña de la base de Permission Service | — |
+| `CORS_ALLOWED_ORIGINS` | Origins que aceptan Snippet Service y Permission Service (ver [CORS](https://github.com/MartinaCousido/SnippetSearcher#cors)) | dev: `https://snippetsearcher-dev.duckdns.org,http://localhost:5173`. prod: `https://snippetsearcher-prod.duckdns.org` |
 
-En las VMs, las pone el workflow de CD desde los secrets del *Environment* de GitHub (`dev` o `prod`). Si falta alguna, el deploy se corta con un error que dice cuál.
+En las VMs, las pone el workflow de CD. `TAG` y `CORS_ALLOWED_ORIGINS` no son secretos: salen de la rama, en `cd.yml`. Las contraseñas salen de los secrets del *Environment* de GitHub (`dev` o `prod`). Si falta alguna, el deploy se corta con un error que dice cuál.
 
 Para validar el stack en tu máquina:
 
