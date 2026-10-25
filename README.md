@@ -50,7 +50,8 @@ Coincide con el flujo de trabajo de los repos: lo que se prueba en dev llega a p
 
 | Servicio | Repo | Estado |
 |---|---|---|
-| `proxy` | — (imagen oficial `nginx:1.30-alpine`) | ✅ En el stack. Reverse proxy: **único servicio con puerto público** (`80`). Ver [Reverse proxy](#reverse-proxy) |
+| `proxy` | — (imagen oficial `nginx:1.30-alpine`) | ✅ En el stack. Reverse proxy: **único servicio con puertos públicos** (`80` y `443`). Ver [Reverse proxy](#reverse-proxy) y [HTTPS](#https) |
+| `certbot` | — (imagen oficial `certbot/certbot:v5.8.0`) | ✅ En el stack. Consigue y renueva el certificado de HTTPS. Sin puertos. Ver [HTTPS](#https) |
 | `ui` | [SnippetSearcher-ui](https://github.com/MartinaCousido/SnippetSearcher-ui) | ✅ En el stack (`ghcr.io/martinacousido/snippet-ui`). Sin puertos: el proxy le pasa `/`. La imagen la publica el repo de la UI ([SnippetSearcher-ui#10](https://github.com/MartinaCousido/SnippetSearcher-ui/issues/10)) |
 | `snippet-service` | [SnippetSearcher](https://github.com/MartinaCousido/SnippetSearcher) | ✅ En el stack. Sin puertos: el proxy le pasa `/api/` |
 | `snippets-db` | — (imagen oficial `postgres:17`) | ✅ En el stack |
@@ -69,20 +70,20 @@ Coincide con el flujo de trabajo de los repos: lo que se prueba en dev llega a p
 | Rama por ambiente | ✅ Definido | `dev` → VM de dev, `main` → VM de prod |
 | Registry de imágenes | ✅ Definido | GHCR (GitHub Container Registry) |
 | Visibilidad de las imágenes | ✅ Definido | **Públicas.** La VM las descarga sin login ni token. Los repos también son públicos, así que no se expone nada nuevo |
-| Puerto 80 de la VM | ✅ Definido | Lo atiende el **`proxy`** (nginx), el único servicio con puertos públicos. Los demás servicios y las bases no se exponen: solo se ven por la red interna |
+| Puertos 80 y 443 de la VM | ✅ Definido | Los atiende el **`proxy`** (nginx), el único servicio con puertos públicos. Los demás servicios y las bases no se exponen: solo se ven por la red interna |
 | Tags de las imágenes | ✅ Definido | Dos tags por imagen: el del ambiente y el del commit. Ver [Tags de las imágenes](#tags-de-las-imágenes) |
 | Credenciales de las bases | ✅ Definido | El nombre y el usuario de cada base son fijos en el stack (`snippets` y `permisos`), porque no son secretos. Solo la **contraseña** va por variable. Ver [Variables del stack](#variables-del-stack) |
 | Deploy | ✅ Definido | Automático con GitHub Actions; nunca a mano en la VM |
 | PrintScript | ✅ Definido | Repo propio, [SnippetPrintScript](https://github.com/MartinaCousido/SnippetPrintScript), con el mismo flujo de deploy que los otros servicios. Ver [Servicio de PrintScript](https://github.com/MartinaCousido/SnippetSearcher#decisiones-técnicas) en SnippetSearcher |
 | Asset Service / bucket | ✅ Definido | Lo provee la cátedra: el Asset Service sobre un bucket emulado con **Azurite**. Ver [Snippet Storage](https://github.com/MartinaCousido/SnippetSearcher#decisiones-técnicas) en SnippetSearcher. En el stack desde #14 |
-| Reverse proxy | ✅ Definido | **nginx** en el puerto 80, con la configuración como Swarm `configs`. Ver [Reverse proxy](#reverse-proxy) |
-| HTTPS | ✅ Definido (falta implementarlo) | **Let's Encrypt + DuckDNS**: `snippetsearcher-dev.duckdns.org` y `snippetsearcher-prod.duckdns.org`. El cifrado termina en el `proxy`, que suma el puerto 443; adentro de la red de Docker se sigue con HTTP. Se implementa en [#24](https://github.com/MartinaCousido/SnippetSearcher-infra/issues/24). Ver [HTTPS](https://github.com/MartinaCousido/SnippetSearcher#https) en SnippetSearcher |
+| Reverse proxy | ✅ Definido | **nginx** en los puertos 80 y 443, con la configuración como Swarm `configs`. Ver [Reverse proxy](#reverse-proxy) |
+| HTTPS | ✅ Definido | **Let's Encrypt + DuckDNS**: `snippetsearcher-dev.duckdns.org` y `snippetsearcher-prod.duckdns.org`. El cifrado termina en el `proxy`, en el puerto 443; adentro de la red de Docker se sigue con HTTP. El servicio `certbot` consigue el certificado; la primera vez, nginx arranca con uno **provisorio autofirmado**. Ver [HTTPS](#https) |
 | CORS | ✅ Definido | Snippet Service y Permission Service aceptan solo los origins de la variable `CORS_ALLOWED_ORIGINS`, que se pasa en el stack (ver [Variables del stack](#variables-del-stack)). Dev: el dominio de dev y `http://localhost:5173`. Prod: solo el dominio de prod. Ver [CORS](https://github.com/MartinaCousido/SnippetSearcher#cors) en SnippetSearcher |
 | Secrets | ✅ Definido | Cinco secrets en cada *Environment* de GitHub (`dev` y `prod`). Ver [Secrets](#secrets) |
 
 ### Variables del stack
 
-`docker-stack.yml` es el mismo para dev y prod. Lo que cambia entre ambientes son cuatro variables:
+`docker-stack.yml` es el mismo para dev y prod. Lo que cambia entre ambientes son cinco variables:
 
 | Variable | Para qué | Ejemplo |
 |---|---|---|
@@ -90,8 +91,9 @@ Coincide con el flujo de trabajo de los repos: lo que se prueba en dev llega a p
 | `SNIPPETS_DB_PASSWORD` | Contraseña de la base de Snippet Service | — |
 | `PERMISOS_DB_PASSWORD` | Contraseña de la base de Permission Service | — |
 | `CORS_ALLOWED_ORIGINS` | Origins que aceptan Snippet Service y Permission Service (ver [CORS](https://github.com/MartinaCousido/SnippetSearcher#cors)) | dev: `https://snippetsearcher-dev.duckdns.org,http://localhost:5173`. prod: `https://snippetsearcher-prod.duckdns.org` |
+| `DOMINIO` | Dominio del ambiente: el del certificado y el de la redirección a HTTPS | `snippetsearcher-dev.duckdns.org` o `snippetsearcher-prod.duckdns.org` |
 
-En las VMs, las pone el workflow de CD. `TAG` y `CORS_ALLOWED_ORIGINS` no son secretos: salen de la rama, en `cd.yml`. Las contraseñas salen de los secrets del *Environment* de GitHub (`dev` o `prod`). Si falta alguna, el deploy se corta con un error que dice cuál.
+En las VMs, las pone el workflow de CD. `TAG`, `CORS_ALLOWED_ORIGINS` y `DOMINIO` no son secretos: salen de la rama, en `cd.yml`. Las contraseñas salen de los secrets del *Environment* de GitHub (`dev` o `prod`). Si falta alguna, el deploy se corta con un error que dice cuál.
 
 Para validar el stack en tu máquina:
 
@@ -114,7 +116,7 @@ No se usa `latest`: no distingue ambientes y no permite saber qué versión est�
 
 ### Reverse proxy
 
-El servicio `proxy` es un **nginx** que recibe todo en el puerto 80 y le pasa cada pedido al servicio que corresponde según la ruta. Sigue el modelo de la demo de la cátedra, [austral-ingsis/nginx-docker](https://github.com/austral-ingsis/nginx-docker). Las rutas están en [`nginx/default.conf`](nginx/default.conf).
+El servicio `proxy` es un **nginx** que recibe todo en los puertos 80 y 443 y le pasa cada pedido al servicio que corresponde según la ruta. Sigue el modelo de la demo de la cátedra, [austral-ingsis/nginx-docker](https://github.com/austral-ingsis/nginx-docker). Las rutas están en [`nginx/default.conf`](nginx/default.conf).
 
 | Ruta | Va a | Ejemplo |
 |---|---|---|
@@ -127,13 +129,39 @@ El servicio `proxy` es un **nginx** que recibe todo en el puerto 80 y le pasa ca
 - Le pasa al servicio los headers `Host`, `X-Forwarded-For` (la IP del usuario) y `X-Forwarded-Proto` (si entró por HTTP o HTTPS).
 - Acepta pedidos de hasta **5 MB** (`client_max_body_size`), para crear snippets desde un archivo (US-1). nginx trae 1 MB por defecto.
 - Si un servicio está caído, responde **502** o **504** con una página propia ([`nginx/errores/no-disponible.html`](nginx/errores/no-disponible.html)), y el resto sigue andando. Espera hasta 5 segundos para conectarse a un servicio (`proxy_connect_timeout`), en lugar de los 60 que trae nginx.
-- Más adelante, el proxy es también el lugar para HTTPS ([#24](https://github.com/MartinaCousido/SnippetSearcher-infra/issues/24)).
+- El puerto 80 solo atiende el desafío de Let's Encrypt y redirige todo lo demás a HTTPS (301). Ver [HTTPS](#https).
+- `nginx/default.conf` es una plantilla: al arrancar, nginx reemplaza `${DOMINIO}` por el dominio del ambiente.
 
 La decisión y el contrato completo están en [Contrato con la UI](https://github.com/MartinaCousido/SnippetSearcher#contrato-con-la-ui) de SnippetSearcher.
 
+### HTTPS
+
+El usuario entra por `https://<dominio>`. El cifrado termina en el `proxy`: a los servicios se les sigue hablando con HTTP, dentro de la red de Docker. El certificado lo da **Let's Encrypt**, gratis, y dura 90 días. Lo consigue y lo renueva el servicio **`certbot`** ([`certbot/certbot.sh`](certbot/certbot.sh)).
+
+```
+                 ┌──────────────────── VM ─────────────────────┐
+navegador ─443─▶ │ proxy (nginx) ──HTTP──▶ ui, snippet-service… │
+navegador ──80─▶ │   └─ 301 a https://<dominio>                 │
+Let's Encrypt ─▶ │   └─ /.well-known/acme-challenge/ ◀─ certbot │
+                 │      volúmenes: certificados, desafios-acme  │
+                 └──────────────────────────────────────────────┘
+```
+
+Cómo se consigue el certificado:
+
+1. **Provisorio.** nginx no arranca con HTTPS sin un certificado, y Let's Encrypt necesita a nginx para comprobar que el dominio es nuestro. Por eso, la primera vez, `certbot` crea un certificado **autofirmado** y nginx arranca con ese. El navegador avisa que no es seguro hasta que llega el real.
+2. **Desafío.** `certbot` deja un archivo en el volumen `desafios-acme`, y el proxy lo sirve en `http://<dominio>/.well-known/acme-challenge/`. Let's Encrypt lo pide: si lo encuentra, el dominio es nuestro. Antes de pedir el certificado, `certbot` comprueba que ese archivo se ve desde afuera: cada pedido fallido cuenta para el límite de Let's Encrypt (5 por hora).
+3. **Real.** `certbot` guarda el certificado en el volumen `certificados`. El proxy mira cada minuto si cambió ([`nginx/certificado.sh`](nginx/certificado.sh)) y recarga nginx, sin cortar.
+4. **Renovación.** Cada 12 horas, `certbot renew` renueva el certificado si le faltan menos de 30 días. El proxy lo nota igual que en el paso 3.
+
+- **Staging.** Con `STAGING: "1"` en el servicio `certbot`, se usa el servidor de pruebas de Let's Encrypt: no tiene límite de pedidos, pero el navegador no confía en su certificado. Al pasar a `"0"`, `certbot` pide el real y reemplaza el de pruebas.
+- **HSTS.** El proxy le dice al navegador que use siempre HTTPS con el dominio, durante un año (`Strict-Transport-Security`).
+- **La clave privada** (`privkey.pem`) vive solo en el volumen `certificados` de la VM. Nunca se commitea ni sale de la VM.
+- La cuenta de Let's Encrypt se crea sin email.
+
 #### Cambiar la configuración del proxy
 
-Los archivos de `nginx/` entran al contenedor como **Swarm `configs`**: Swarm guarda una copia en la VM y no deja cambiarla. Por eso, cada vez que se edita un archivo de `nginx/`, hay que subir la versión de su nombre en `docker-stack.yml`:
+Los archivos de `nginx/` y `certbot/` entran a los contenedores como **Swarm `configs`**: Swarm guarda una copia en la VM y no deja cambiarla. Por eso, cada vez que se edita uno de esos archivos, hay que subir la versión de su nombre en `docker-stack.yml`:
 
 ```yaml
 configs:
@@ -165,7 +193,7 @@ Viven en los *Environments* `dev` y `prod` de este repo (**Settings → Environm
 
 1. Valida `docker-stack.yml` con `docker stack config`.
 2. Entra a la VM por SSH con `VM_SSH_KEY`.
-3. Copia `docker-stack.yml` y la carpeta `nginx/` a `~/snippet-searcher/` en la VM.
+3. Copia `docker-stack.yml` y las carpetas `nginx/` y `certbot/` a `~/snippet-searcher/` en la VM.
 4. Si `snippet-service` todavía publica el puerto 80, se lo saca. Pasa una sola vez por VM, en la primera vez que se despliega el proxy (#23): sin este paso, Swarm puede crear el proxy antes de liberar el puerto, y el deploy falla.
 5. Corre `docker stack deploy --prune` con las variables del ambiente. `--prune` borra los servicios que ya no estén en el stack.
 6. Espera hasta 5 minutos a que cada servicio esté en `1/1`. Si no llega, el workflow falla y muestra qué servicio no arrancó.
@@ -174,13 +202,14 @@ Para que funcione, **la VM tiene que estar prendida**. Si estaba apagada, se pre
 
 ## Preparar una VM
 
-Se hace una vez por ambiente, a mano, desde el portal de Azure:
+Se hace una vez por ambiente, a mano, desde el portal de Azure y DuckDNS:
 
 1. Crear la máquina virtual con el tamaño más barato, **IP pública** y acceso por **SSH** con un par de claves nuevo.
-2. Abrir el **puerto 80**.
-3. Entrar por SSH: `ssh -i <clave>.pem azureuser@<ip-publica>`.
-4. Instalar Docker.
-5. Inicializar Swarm: `docker swarm init`.
+2. Abrir los **puertos 80 y 443**, y hacer **estática** la IP pública (si cambia, el dominio deja de apuntar a la VM).
+3. En [DuckDNS](https://www.duckdns.org), crear el subdominio del ambiente (`snippetsearcher-dev` o `snippetsearcher-prod`) con la IP pública de la VM.
+4. Entrar por SSH: `ssh -i <clave>.pem azureuser@<ip-publica>`.
+5. Instalar Docker.
+6. Inicializar Swarm: `docker swarm init`.
 
 A partir de ahí, todo lo que corre en la VM lo despliegan los workflows de GitHub. La clave `.pem` **nunca** se commitea.
 
