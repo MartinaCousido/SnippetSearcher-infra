@@ -165,8 +165,9 @@ Viven en los *Environments* `dev` y `prod` de este repo (**Settings → Environm
 1. Valida `docker-stack.yml` con `docker stack config`.
 2. Entra a la VM por SSH con `VM_SSH_KEY`.
 3. Copia `docker-stack.yml` y la carpeta `nginx/` a `~/snippet-searcher/` en la VM.
-4. Corre `docker stack deploy --prune` con las variables del ambiente. `--prune` borra los servicios que ya no estén en el stack.
-5. Espera hasta 5 minutos a que cada servicio esté en `1/1`. Si no llega, el workflow falla y muestra qué servicio no arrancó.
+4. Si `snippet-service` todavía publica el puerto 80, se lo saca. Pasa una sola vez por VM, en la primera vez que se despliega el proxy (#23): sin este paso, Swarm puede crear el proxy antes de liberar el puerto, y el deploy falla.
+5. Corre `docker stack deploy --prune` con las variables del ambiente. `--prune` borra los servicios que ya no estén en el stack.
+6. Espera hasta 5 minutos a que cada servicio esté en `1/1`. Si no llega, el workflow falla y muestra qué servicio no arrancó.
 
 Para que funcione, **la VM tiene que estar prendida**. Si estaba apagada, se prende desde el portal de Azure y se vuelve a correr el workflow desde la pestaña *Actions* (**Re-run jobs**).
 
