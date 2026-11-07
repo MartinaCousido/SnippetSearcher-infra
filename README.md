@@ -80,6 +80,7 @@ Coincide con el flujo de trabajo de los repos: lo que se prueba en dev llega a p
 | HTTPS | ✅ Definido | **Let's Encrypt + DuckDNS**: `snippetsearcher-dev.duckdns.org` y `snippetsearcher-prod.duckdns.org`. El cifrado termina en el `proxy`, en el puerto 443; adentro de la red de Docker se sigue con HTTP. El servicio `certbot` consigue el certificado; la primera vez, nginx arranca con uno **provisorio autofirmado**. Ver [HTTPS](#https) |
 | CORS | ✅ Definido | Snippet Service y Permission Service aceptan solo los origins de la variable `CORS_ALLOWED_ORIGINS`, que se pasa en el stack (ver [Variables del stack](#variables-del-stack)). Dev: el dominio de dev y `http://localhost:5173`. Prod: solo el dominio de prod. Ver [CORS](https://github.com/MartinaCousido/SnippetSearcher#cors) en SnippetSearcher |
 | Secrets | ✅ Definido | Cinco secrets en cada *Environment* de GitHub (`dev` y `prod`). Ver [Secrets](#secrets) |
+| Auth0 | ✅ Definido | Un solo tenant para dev y prod (`dev-eadjutr73y1lgdc5.us.auth0.com`). Sus recursos se crean con **Pulumi**, en la carpeta `auth0/`. Ver [Auth0](#auth0) y las filas **Auth0** y **Roles y permisos** de [Decisiones técnicas](https://github.com/MartinaCousido/SnippetSearcher#decisiones-técnicas) en SnippetSearcher |
 
 ### Variables del stack
 
@@ -173,6 +174,78 @@ configs:
 ```
 
 Si no se sube la versión, el deploy falla porque la config ya existe con otro contenido. Los archivos que no cambian quedan con su versión.
+
+## Auth0
+
+Auth0 hace el login y entrega los tokens que validan los servicios. Las decisiones están en las filas **Auth0** y **Roles y permisos** de [Decisiones técnicas](https://github.com/MartinaCousido/SnippetSearcher#decisiones-técnicas) de SnippetSearcher.
+
+Los recursos de Auth0 no se crean a mano en el dashboard: están escritos como código en [`auth0/index.ts`](auth0/index.ts), con **Pulumi** (una herramienta que crea y actualiza recursos a partir de código). Sigue el `setup/` de la demo de la cátedra, [austral-ingsis/auth0-integration](https://github.com/austral-ingsis/auth0-integration). `npm run up` los crea igual cada vez, y si alguien los cambia en el dashboard, el siguiente `npm run up` los vuelve a dejar como dice el código.
+
+### Qué crea
+
+| Recurso | Nombre | Para qué |
+|---|---|---|
+| API | `snippetsearcher-api`, identificador `https://snippetsearcher-api` | Los servicios. El identificador es el `aud` del token |
+| Permisos de la API | `read:snippets` y `write:snippets` | Lo que revisa cada servicio. Con **RBAC** activado: Auth0 da un permiso solo si el usuario lo tiene por su rol |
+| Rol | `snippet-user`, con los dos permisos | Hoy lo reciben todos los usuarios |
+| Action de login | `rol-por-defecto` | Le da `snippet-user` a cada usuario que inicia sesión sin rol, y agrega los permisos a ese primer token. Saltea a los usuarios con `app_metadata.sinRolPorDefecto` |
+| App *Machine to Machine* | `snippetsearcher-role-assigner` | La usa la Action para asignar el rol. Solo tiene el permiso `update:users` de la Management API |
+| App SPA | `snippetsearcher-ui` | La UI. Acepta `http://localhost:5173` y los dominios de dev y prod. Usa *refresh tokens* con rotación, para no depender de cookies de terceros |
+| App nativa | `snippetsearcher-token-script` | `npm run token`: consigue un token desde la terminal |
+| Usuarios de prueba | `ana@example.com` y `leo@example.com` con el rol; `sin-rol@example.com` sin rol | Cypress, probar compartir y ver el 403. `example.com` es un dominio reservado que nunca recibe mails |
+
+### Primera vez
+
+Se hace una vez, desde tu máquina. Requiere Node.js 20.12 o más nuevo.
+
+1. **En el dashboard de Auth0**, crear la app que usa Pulumi. Es el único paso a mano:
+   1. *Applications → Applications → Create Application*, con el nombre `pulumi` y el tipo **Machine to Machine**.
+   2. Elegir **Auth0 Management API**, tocar **Select all** y **Authorize**.
+   3. En su pestaña *Settings*, copiar el **Client ID** y el **Client Secret**.
+2. **Completar `auth0/.env`**, que no se commitea:
+
+   ```bash
+   cd auth0
+   cp .env.example .env
+   ```
+
+   | Variable | Valor |
+   |---|---|
+   | `AUTH0_DOMAIN` | El dominio del tenant. Ya viene completo |
+   | `AUTH0_CLIENT_ID` / `AUTH0_CLIENT_SECRET` | Los de la app `pulumi` |
+   | `USUARIOS_PASSWORD` | La contraseña de los usuarios de prueba: 8 caracteres o más, con minúsculas, mayúsculas y números |
+   | `PULUMI_CONFIG_PASSPHRASE` | Cualquier texto. Cifra los secretos del estado de Pulumi. Hay que guardarlo: todos los comandos piden el mismo |
+
+3. **Instalar y crear el stack:**
+
+   ```bash
+   npm install
+   npm run init       # crea el stack "snippetsearcher"
+   npm run preview    # muestra qué va a crear, sin tocar Auth0
+   npm run up         # lo crea (pide confirmar)
+   ```
+
+4. **Probar:** `npm run token` abre el login de Auth0 en el navegador. Al entrar con `ana@example.com`, la terminal muestra el token, con `aud: https://snippetsearcher-api` y `scope: read:snippets write:snippets`. Con `sin-rol@example.com`, el `scope` sale sin esos permisos.
+
+### Comandos
+
+Todos se corren desde `auth0/` y leen `auth0/.env`.
+
+| Comando | Qué hace |
+|---|---|
+| `npm run preview` | Muestra qué cambiaría, sin tocar Auth0 |
+| `npm run up` | Aplica los cambios de `index.ts` |
+| `npm run refresh` | Lee el estado real de Auth0 y muestra las diferencias con el código |
+| `npm run outputs` | Muestra las salidas: `AUTH0_DOMAIN`, `AUTH0_AUDIENCE`, el client id de la UI y los usuarios |
+| `npm run token` | Consigue un access token (por defecto, con `read:snippets write:snippets`). `export TOKEN=$(npm run --silent token)` lo guarda para usarlo con `curl` |
+| `npm run destroy` | Borra todo lo que creó Pulumi |
+
+### Para tener en cuenta
+
+- **El estado de Pulumi** (lo que ya creó) vive en `auth0/.pulumi/` y `auth0/Pulumi.snippetsearcher.yaml`, en la máquina de Martina, y no se commitea. Solo desde ahí se pueden aplicar cambios. Si se pierde, hay que borrar los recursos en el dashboard y volver a correr `npm run up`.
+- **Cambiar un rol o un permiso:** se edita `index.ts` y se corre `npm run up`. No se toca el dashboard.
+- **Roles nuevos:** si la cátedra pide roles por tipo de usuario, se crean en `index.ts` y se reparten los permisos. Los servicios no cambian.
+- **Los mismos recursos sirven para dev y prod:** hay un solo tenant.
 
 ## Secrets
 
