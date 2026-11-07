@@ -96,6 +96,15 @@ Coincide con el flujo de trabajo de los repos: lo que se prueba en dev llega a p
 
 En las VMs, las pone el workflow de CD. `TAG`, `CORS_ALLOWED_ORIGINS` y `DOMINIO` no son secretos: salen de la rama, en `cd.yml`. Las contraseñas salen de los secrets del *Environment* de GitHub (`dev` o `prod`). Si falta alguna, el deploy se corta con un error que dice cuál.
 
+Lo que **no** cambia entre ambientes va escrito en `docker-stack.yml`, como las URLs entre servicios o el usuario de cada base. Entre esos datos están los de Auth0, que Snippet Service y Permission Service usan para validar los tokens:
+
+| Variable del servicio | Valor | Para qué |
+|---|---|---|
+| `AUTH0_DOMAIN` | `dev-eadjutr73y1lgdc5.us.auth0.com` | El tenant del que se aceptan tokens (el `iss` del token) |
+| `AUTH0_AUDIENCE` | `https://snippetsearcher-api` | La API para la que tiene que ser el token (el `aud`) |
+
+Valen lo mismo en dev y prod porque hay un solo tenant, y no son secretos. Ver [Auth0](#auth0).
+
 Para validar el stack en tu máquina:
 
 ```bash

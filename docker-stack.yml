@@ -90,6 +90,10 @@ services:
       PRINTSCRIPT_SERVICE_URL: http://printscript-service:8080
       ASSET_SERVICE_URL: http://asset-service:8080
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:?Falta CORS_ALLOWED_ORIGINS}
+      # Auth0: de qué tenant acepta tokens y para qué API (el "aud"). Hay un solo
+      # tenant para dev y prod, y no son secretos: van fijos (ver Auth0 en el README).
+      AUTH0_DOMAIN: dev-eadjutr73y1lgdc5.us.auth0.com
+      AUTH0_AUDIENCE: https://snippetsearcher-api
       # Spring Boot lee esta variable solo: no hace falta configurarla en el servicio.
       SPRING_DATA_REDIS_HOST: redis
     networks:
@@ -109,6 +113,9 @@ services:
       DB_USER: permisos
       DB_PASSWORD: ${PERMISOS_DB_PASSWORD:?Falta PERMISOS_DB_PASSWORD}
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:?Falta CORS_ALLOWED_ORIGINS}
+      # Auth0: los mismos valores que snippet-service.
+      AUTH0_DOMAIN: dev-eadjutr73y1lgdc5.us.auth0.com
+      AUTH0_AUDIENCE: https://snippetsearcher-api
     networks:
       - snippet-net
     deploy:
