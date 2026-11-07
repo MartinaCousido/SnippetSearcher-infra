@@ -1,0 +1,24 @@
+{
+    "name": "snippetsearcher-auth0",
+    "private": true,
+    "main": "index.ts",
+    "scripts": {
+        "pulumi": "node --env-file=.env node_modules/pulumi/run.js",
+        "init": "npm run pulumi -- stack select --create snippetsearcher",
+        "preview": "npm run pulumi -- preview",
+        "up": "npm run pulumi -- up",
+        "refresh": "npm run pulumi -- refresh",
+        "destroy": "npm run pulumi -- destroy",
+        "outputs": "npm run pulumi -- stack output",
+        "token": "node --env-file=.env get-token.mjs"
+    },
+    "dependencies": {
+        "@pulumi/auth0": "^3.55.1",
+        "@pulumi/pulumi": "^3.272.0"
+    },
+    "devDependencies": {
+        "@types/node": "^22.20.5",
+        "pulumi": "3.272.0",
+        "typescript": "^5.9.3"
+    }
+}

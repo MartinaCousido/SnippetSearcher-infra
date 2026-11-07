@@ -1,0 +1,11 @@
+# Credenciales de Auth0 y contraseñas.
+.env
+
+# Estado de Pulumi: lo que ya creó, con los secretos cifrados. El
+# Pulumi.<stack>.yaml guarda la sal de ese cifrado: solo sirve junto con el
+# estado, así que queda con él.
+.pulumi/
+Pulumi.*.yaml
+
+node_modules/
+bin/
