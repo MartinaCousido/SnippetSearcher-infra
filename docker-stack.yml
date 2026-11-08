@@ -94,6 +94,10 @@ services:
       # tenant para dev y prod, y no son secretos: van fijos (ver Auth0 en el README).
       AUTH0_DOMAIN: dev-eadjutr73y1lgdc5.us.auth0.com
       AUTH0_AUDIENCE: https://snippetsearcher-api
+      # Módulo User: la app de Auth0 con la que Snippet Service lee usuarios
+      # (read:users). El client id no es secreto; el secret sí, y llega por variable.
+      AUTH0_USERS_CLIENT_ID: Z3S1LhEN5c6iXbSUxLVjPVAZSMgGX9U9
+      AUTH0_USERS_CLIENT_SECRET: ${AUTH0_USERS_CLIENT_SECRET:?Falta AUTH0_USERS_CLIENT_SECRET}
       # Spring Boot lee esta variable solo: no hace falta configurarla en el servicio.
       SPRING_DATA_REDIS_HOST: redis
     networks:
