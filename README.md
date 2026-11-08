@@ -52,6 +52,7 @@ Coincide con el flujo de trabajo de los repos: lo que se prueba en dev llega a p
 |---|---|---|
 | `proxy` | — (imagen oficial `nginx:1.30-alpine`) | ✅ En el stack. Reverse proxy: **único servicio con puertos públicos** (`80` y `443`). Ver [Reverse proxy](#reverse-proxy) y [HTTPS](#https) |
 | `certbot` | — (imagen oficial `certbot/certbot:v5.8.0`) | ✅ En el stack. Consigue y renueva el certificado de HTTPS. Sin puertos. Ver [HTTPS](#https) |
+| `logs` | — (imagen `newrelic/newrelic-fluentbit-output:3.11.0`) | ✅ En el stack. Manda a New Relic los logs de los contenedores sin agente propio. Uno por VM (`mode: global`). Sin puertos. Ver [New Relic](#new-relic) |
 | `ui` | [SnippetSearcher-ui](https://github.com/MartinaCousido/SnippetSearcher-ui) | ✅ En el stack (`ghcr.io/martinacousido/snippet-ui`). Sin puertos: el proxy le pasa `/`. La imagen la publica el repo de la UI ([SnippetSearcher-ui#10](https://github.com/MartinaCousido/SnippetSearcher-ui/issues/10)) |
 | `snippet-service` | [SnippetSearcher](https://github.com/MartinaCousido/SnippetSearcher) | ✅ En el stack. Sin puertos: el proxy le pasa `/api/` |
 | `snippets-db` | — (imagen oficial `postgres:17`) | ✅ En el stack |
@@ -195,11 +196,12 @@ Observabilidad del sistema: la cátedra baja un servicio, en dev o en prod, y te
 |---|---|
 | Snippet, Permission, PrintScript y Asset Service | El agente Java de cada imagen. El stack le pasa `NEW_RELIC_LICENSE_KEY` y el nombre por ambiente (`NEW_RELIC_APP_NAME`, por ejemplo `snippet-service (dev)`). Manda métricas, traces y los logs del servicio |
 | La VM | El **agente de infraestructura** (`newrelic/infrastructure-bundle`), con el nombre `snippetsearcher-dev` o `snippetsearcher-prod` y el atributo `environment`. Mide CPU, memoria, disco y red, y ve cada contenedor |
-| Logs de los contenedores (proxy, Postgres, Redis, Azurite y el resto) | El mismo agente de infraestructura lee los logs que Docker guarda en la VM ([`newrelic-infra/logging.yml`](newrelic-infra/logging.yml)). Cada línea lleva el servicio de Swarm del que sale (`x-logging` en `docker-stack.yml`) |
+| Logs de los contenedores sin agente (proxy, certbot, ui, Postgres, Redis, Azurite) | El servicio **`logs`** del stack: fluent-bit con el conector de New Relic (`newrelic/newrelic-fluentbit-output`), uno por VM. Lee los logs que Docker guarda en la VM ([`newrelic-logs/fluent-bit.conf`](newrelic-logs/fluent-bit.conf)). Cada línea lleva su servicio (`service`, por ejemplo `snippet-searcher_redis`), el ambiente (`environment`) y `logtype: docker` |
 | ¿Anda el sistema? | `GET /api/health`, que el proxy le pasa a Snippet Service: `UP` o `DOWN`. Lo miran los synthetics |
 
 - **El agente de infraestructura no va en el stack:** necesita permisos sobre la VM (`--privileged`, la red y los procesos del host) que un servicio de Swarm no puede tener. Lo levanta el CD por SSH con `docker run`, en cada deploy. Sigue versionado y no se instala nada a mano.
-- **Los logs de los servicios Java llegan dos veces:** los manda su agente (con el `requestId`, el usuario y el `trace.id`) y también el agente de infraestructura (como texto, con `logtype: docker`). Para buscarlos, conviene filtrar por `entity.name` (`snippet-service (dev)`); los de los contenedores que no son Java, por el servicio de Swarm.
+- **Los logs de los servicios Java no pasan por `logs`:** los manda su agente, con el `requestId`, el usuario y el `trace.id`. Se buscan por `entity.name` (`snippet-service (dev)`); los demás, por `service`.
+- **La imagen del agente de infraestructura en contenedor no trae fluent-bit**, así que no puede mandar logs: por eso están separados. El servicio `logs` no necesita permisos especiales (solo lee los logs de Docker) y va en el stack.
 - Las synthetics, las alertas y el dashboard se crean con Pulumi en `newrelic/` (#43).
 
 ## Auth0

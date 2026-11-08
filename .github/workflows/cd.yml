@@ -54,13 +54,14 @@ jobs:
       - name: Copiar el stack y la configuración del proxy y de certbot a la VM
         env:
           VM: ${{ secrets.VM_USER }}@${{ secrets.VM_HOST }}
-        # Se borran nginx/ y certbot/ antes de copiarlas, para que no queden archivos
-        # viejos.
+        # Se borran nginx/, certbot/ y newrelic-logs/ antes de copiarlas, para que
+        # no queden archivos viejos (newrelic-infra/ ya no se usa).
         run: |
-          ssh -i ~/.ssh/vm.pem "$VM" 'mkdir -p ~/snippet-searcher && rm -rf ~/snippet-searcher/nginx ~/snippet-searcher/certbot'
+          ssh -i ~/.ssh/vm.pem "$VM" 'mkdir -p ~/snippet-searcher && rm -rf ~/snippet-searcher/nginx ~/snippet-searcher/certbot ~/snippet-searcher/newrelic-logs ~/snippet-searcher/newrelic-infra'
           scp -i ~/.ssh/vm.pem docker-stack.yml "$VM:~/snippet-searcher/docker-stack.yml"
           scp -r -i ~/.ssh/vm.pem nginx "$VM:~/snippet-searcher/nginx"
           scp -r -i ~/.ssh/vm.pem certbot "$VM:~/snippet-searcher/certbot"
+          scp -r -i ~/.ssh/vm.pem newrelic-logs "$VM:~/snippet-searcher/newrelic-logs"
 
       - name: Liberar el puerto 80 de snippet-service
         env:
@@ -105,17 +106,15 @@ jobs:
           '
 
       # El agente de infraestructura de New Relic mira la VM entera (CPU,
-      # memoria, disco, red y contenedores) y manda los logs de los
-      # contenedores. Necesita permisos sobre la VM que un servicio de Swarm no
-      # puede tener, así que no va en el stack: se levanta acá, como un
-      # contenedor con docker run. Se recrea en cada deploy, con la
-      # configuración de newrelic-infra/.
+      # memoria, disco, red y contenedores). Necesita permisos sobre la VM que
+      # un servicio de Swarm no puede tener, así que no va en el stack: se
+      # levanta acá, como un contenedor con docker run, y se recrea en cada
+      # deploy. Los logs de los contenedores no los manda él (su imagen no trae
+      # fluent-bit): los manda el servicio logs del stack.
       - name: Levantar el agente de infraestructura de New Relic
         env:
           VM: ${{ secrets.VM_USER }}@${{ secrets.VM_HOST }}
         run: |
-          ssh -i ~/.ssh/vm.pem "$VM" 'rm -rf ~/snippet-searcher/newrelic-infra'
-          scp -i ~/.ssh/vm.pem -r newrelic-infra "$VM:~/snippet-searcher/newrelic-infra"
           printf 'TAG=%s\nNRIA_LICENSE_KEY=%s\n' "$TAG" "$NEW_RELIC_LICENSE_KEY" |
           ssh -i ~/.ssh/vm.pem "$VM" '
             set -e
@@ -124,7 +123,6 @@ jobs:
             docker run -d --name newrelic-infra --restart unless-stopped \
               --network host --pid host --privileged --cap-add SYS_PTRACE \
               -v /:/host:ro -v /var/run/docker.sock:/var/run/docker.sock \
-              -v "$HOME/snippet-searcher/newrelic-infra/logging.yml:/etc/newrelic-infra/logging.d/contenedores.yml:ro" \
               -e NRIA_LICENSE_KEY \
               -e NRIA_DISPLAY_NAME="snippetsearcher-$TAG" \
               -e NRIA_CUSTOM_ATTRIBUTES="{\"environment\":\"$TAG\"}" \
