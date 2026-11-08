@@ -240,6 +240,28 @@ services:
     networks:
       - snippet-net
 
+  # Logs de los contenedores a New Relic (fluent-bit con el conector de New
+  # Relic): los de proxy, certbot, ui, Postgres, Redis y Azurite. Los servicios
+  # Java mandan los suyos con su agente. Uno por VM (global). Solo lee los logs
+  # que Docker guarda en la VM. Ver newrelic-logs/fluent-bit.conf.
+  logs:
+    image: newrelic/newrelic-fluentbit-output:3.11.0
+    logging: *logging
+    environment:
+      LICENSE_KEY: ${NEW_RELIC_LICENSE_KEY:?Falta NEW_RELIC_LICENSE_KEY}
+      ENVIRONMENT: ${TAG:?Falta TAG (dev o prod)}
+    volumes:
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - logs-db:/fluent-bit/db
+    configs:
+      - source: logs_conf
+        target: /fluent-bit/etc/fluent-bit.conf
+    deploy:
+      mode: global
+      restart_policy:
+        condition: on-failure
+        delay: 10s
+
 # Red interna del stack: los servicios se encuentran por nombre.
 networks:
   snippet-net:
@@ -256,6 +278,9 @@ volumes:
   certificados:
   # Archivos del desafío de Let's Encrypt.
   desafios-acme:
+  # Hasta dónde leyó fluent-bit cada log: si se reinicia, no manda dos veces
+  # la misma línea.
+  logs-db:
 
 # Archivos de configuración del proxy. Swarm los guarda en la VM y no deja
 # cambiarlos: si se edita un archivo, hay que subir la versión de su nombre
@@ -274,3 +299,6 @@ configs:
   certbot_script:
     name: snippet-searcher_certbot_script_v1
     file: ./certbot/certbot.sh
+  logs_conf:
+    name: snippet-searcher_logs_conf_v1
+    file: ./newrelic-logs/fluent-bit.conf
