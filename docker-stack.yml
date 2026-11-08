@@ -8,9 +8,21 @@
 #   PERMISOS_DB_PASSWORD  Contraseña de la base de Permission Service.
 #   CORS_ALLOWED_ORIGINS  Origins que aceptan Snippet Service y Permission Service.
 #   DOMINIO               Dominio del ambiente, para el certificado y la redirección.
+#   NEW_RELIC_LICENSE_KEY License key de New Relic, para los agentes de los servicios.
 #
 # Uso: docker stack deploy -c docker-stack.yml snippet-searcher
 version: "3.8"
+
+# Logs de los contenedores: cada línea lleva el nombre de su servicio (un label
+# que pone Swarm). Así, en New Relic, el agente de infraestructura sabe de qué
+# servicio es cada log (proxy, Postgres, Redis, Azurite...). Ver New Relic en
+# el README.
+x-logging: &logging
+  driver: json-file
+  options:
+    labels: com.docker.swarm.service.name
+    max-size: "10m"
+    max-file: "3"
 
 services:
   # Reverse proxy: recibe todo en los puertos 80 y 443 y le pasa cada pedido al
@@ -18,6 +30,7 @@ services:
   # públicos. Las rutas están en nginx/default.conf.
   proxy:
     image: nginx:1.30-alpine
+    logging: *logging
     ports:
       - "80:80"
       - "443:443"
@@ -51,6 +64,7 @@ services:
   # Sin puertos: Let's Encrypt llega al desafío a través del proxy.
   certbot:
     image: certbot/certbot:v5.8.0
+    logging: *logging
     entrypoint: ["/bin/sh", "/certbot.sh"]
     environment:
       DOMINIO: ${DOMINIO:?Falta DOMINIO}
@@ -72,6 +86,7 @@ services:
   # a través del proxy, en /.
   ui:
     image: ghcr.io/martinacousido/snippet-ui:${TAG:?Falta TAG (dev o prod)}
+    logging: *logging
     networks:
       - snippet-net
     deploy:
@@ -81,6 +96,7 @@ services:
 
   snippet-service:
     image: ghcr.io/martinacousido/snippet-service:${TAG:?Falta TAG (dev o prod)}
+    logging: *logging
     # Sin puertos: se llega a través del proxy, en /api/.
     environment:
       DB_URL: jdbc:postgresql://snippets-db:5432/snippets
@@ -100,6 +116,11 @@ services:
       AUTH0_USERS_CLIENT_SECRET: ${AUTH0_USERS_CLIENT_SECRET:?Falta AUTH0_USERS_CLIENT_SECRET}
       # Spring Boot lee esta variable solo: no hace falta configurarla en el servicio.
       SPRING_DATA_REDIS_HOST: redis
+      # El health del Asset Service, para GET /api/health (synthetics).
+      ASSET_SERVICE_HEALTH_URL: http://asset-service:9090/actuator/health
+      # New Relic: el agente manda métricas, traces y logs, con el nombre del ambiente.
+      NEW_RELIC_LICENSE_KEY: ${NEW_RELIC_LICENSE_KEY:?Falta NEW_RELIC_LICENSE_KEY}
+      NEW_RELIC_APP_NAME: snippet-service (${TAG:?Falta TAG (dev o prod)})
     networks:
       - snippet-net
     deploy:
@@ -111,6 +132,7 @@ services:
 
   permission-service:
     image: ghcr.io/martinacousido/permission-service:${TAG:?Falta TAG (dev o prod)}
+    logging: *logging
     # Sin puertos: se llega a través del proxy, en /api/permissions/.
     environment:
       DB_URL: jdbc:postgresql://permisos-db:5432/permisos
@@ -120,6 +142,8 @@ services:
       # Auth0: los mismos valores que snippet-service.
       AUTH0_DOMAIN: dev-eadjutr73y1lgdc5.us.auth0.com
       AUTH0_AUDIENCE: https://snippetsearcher-api
+      NEW_RELIC_LICENSE_KEY: ${NEW_RELIC_LICENSE_KEY:?Falta NEW_RELIC_LICENSE_KEY}
+      NEW_RELIC_APP_NAME: permission-service (${TAG:?Falta TAG (dev o prod)})
     networks:
       - snippet-net
     deploy:
@@ -129,8 +153,12 @@ services:
 
   printscript-service:
     image: ghcr.io/martinacousido/printscript-service:${TAG:?Falta TAG (dev o prod)}
+    logging: *logging
     # Sin puertos: solo lo llama Snippet Service, por la red interna.
     # No tiene base de datos.
+    environment:
+      NEW_RELIC_LICENSE_KEY: ${NEW_RELIC_LICENSE_KEY:?Falta NEW_RELIC_LICENSE_KEY}
+      NEW_RELIC_APP_NAME: printscript-service (${TAG:?Falta TAG (dev o prod)})
     networks:
       - snippet-net
     deploy:
@@ -143,11 +171,13 @@ services:
   # es pública. Sin puertos: solo lo llama Snippet Service.
   asset-service:
     image: ghcr.io/austral-ingsis/snippet-asset-service:main.14
+    logging: *logging
     environment:
       AZURE_HOST: http://azurite
-      # La imagen trae el agente de New Relic (monitoreo); no se usa.
-      NEW_RELIC_AGENT_ENABLED: "false"
-      NEW_RELIC_APP_NAME: asset-service
+      # La imagen trae el agente de New Relic: se prende, con el nombre del ambiente.
+      NEW_RELIC_AGENT_ENABLED: "true"
+      NEW_RELIC_LICENSE_KEY: ${NEW_RELIC_LICENSE_KEY:?Falta NEW_RELIC_LICENSE_KEY}
+      NEW_RELIC_APP_NAME: asset-service (${TAG:?Falta TAG (dev o prod)})
     networks:
       - snippet-net
     healthcheck:
@@ -165,6 +195,7 @@ services:
   # El bucket: emula Azure Blob Storage. Solo lo usa el Asset Service.
   azurite:
     image: mcr.microsoft.com/azure-storage/azurite:3.37.0
+    logging: *logging
     command: azurite-blob --blobHost 0.0.0.0 --location /data
     volumes:
       - azurite-data:/data
@@ -175,6 +206,7 @@ services:
   # Solo la usa Snippet Service. Sin puertos: solo por la red interna.
   redis:
     image: redis:8.2
+    logging: *logging
     # appendonly guarda cada mensaje en disco: si Redis se reinicia, los
     # mensajes pendientes siguen ahí y se pueden reintentar.
     command: redis-server --appendonly yes
@@ -185,6 +217,7 @@ services:
 
   snippets-db:
     image: postgres:17
+    logging: *logging
     # Sin puertos: la base no se expone fuera del stack.
     environment:
       POSTGRES_DB: snippets
@@ -197,6 +230,7 @@ services:
 
   permisos-db:
     image: postgres:17
+    logging: *logging
     environment:
       POSTGRES_DB: permisos
       POSTGRES_USER: permisos

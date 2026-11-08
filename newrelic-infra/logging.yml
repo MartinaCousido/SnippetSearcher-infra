@@ -1,0 +1,9 @@
+# Logs que el agente de infraestructura de New Relic manda (ver New Relic en el
+# README). Son los de todos los contenedores de la VM, que Docker guarda en
+# JSON: cada línea trae el nombre de su servicio de Swarm (el label que pide
+# x-logging en docker-stack.yml). El agente ve el disco de la VM en /host.
+logs:
+  - name: contenedores
+    file: /host/var/lib/docker/containers/*/*-json.log
+    attributes:
+      logtype: docker

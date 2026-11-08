@@ -79,12 +79,12 @@ Coincide con el flujo de trabajo de los repos: lo que se prueba en dev llega a p
 | Reverse proxy | ✅ Definido | **nginx** en los puertos 80 y 443, con la configuración como Swarm `configs`. Ver [Reverse proxy](#reverse-proxy) |
 | HTTPS | ✅ Definido | **Let's Encrypt + DuckDNS**: `snippetsearcher-dev.duckdns.org` y `snippetsearcher-prod.duckdns.org`. El cifrado termina en el `proxy`, en el puerto 443; adentro de la red de Docker se sigue con HTTP. El servicio `certbot` consigue el certificado; la primera vez, nginx arranca con uno **provisorio autofirmado**. Ver [HTTPS](#https) |
 | CORS | ✅ Definido | Snippet Service y Permission Service aceptan solo los origins de la variable `CORS_ALLOWED_ORIGINS`, que se pasa en el stack (ver [Variables del stack](#variables-del-stack)). Dev: el dominio de dev y `http://localhost:5173`. Prod: solo el dominio de prod. Ver [CORS](https://github.com/MartinaCousido/SnippetSearcher#cors) en SnippetSearcher |
-| Secrets | ✅ Definido | Seis secrets en cada *Environment* de GitHub (`dev` y `prod`). Ver [Secrets](#secrets) |
+| Secrets | ✅ Definido | Siete secrets en cada *Environment* de GitHub (`dev` y `prod`). Ver [Secrets](#secrets) |
 | Auth0 | ✅ Definido | Un solo tenant para dev y prod (`dev-eadjutr73y1lgdc5.us.auth0.com`). Sus recursos se crean con **Pulumi**, en la carpeta `auth0/`. Ver [Auth0](#auth0) y las filas **Auth0** y **Roles y permisos** de [Decisiones técnicas](https://github.com/MartinaCousido/SnippetSearcher#decisiones-técnicas) en SnippetSearcher |
 
 ### Variables del stack
 
-`docker-stack.yml` es el mismo para dev y prod. Lo que cambia entre ambientes, o es secreto, son seis variables:
+`docker-stack.yml` es el mismo para dev y prod. Lo que cambia entre ambientes, o es secreto, son siete variables:
 
 | Variable | Para qué | Ejemplo |
 |---|---|---|
@@ -94,6 +94,7 @@ Coincide con el flujo de trabajo de los repos: lo que se prueba en dev llega a p
 | `CORS_ALLOWED_ORIGINS` | Origins que aceptan Snippet Service y Permission Service (ver [CORS](https://github.com/MartinaCousido/SnippetSearcher#cors)) | dev: `https://snippetsearcher-dev.duckdns.org,http://localhost:5173`. prod: `https://snippetsearcher-prod.duckdns.org` |
 | `DOMINIO` | Dominio del ambiente: el del certificado y el de la redirección a HTTPS | `snippetsearcher-dev.duckdns.org` o `snippetsearcher-prod.duckdns.org` |
 | `AUTH0_USERS_CLIENT_SECRET` | Secret de la app `snippetsearcher-users-reader`, con la que Snippet Service lee usuarios de Auth0 (módulo User). Es el mismo en dev y prod, pero es secreto | — |
+| `NEW_RELIC_LICENSE_KEY` | License key de New Relic: la usan los agentes de los servicios y el de infraestructura. Es la misma en dev y prod, pero es secreta | — |
 
 En las VMs, las pone el workflow de CD. `TAG`, `CORS_ALLOWED_ORIGINS` y `DOMINIO` no son secretos: salen de la rama, en `cd.yml`. Las contraseñas y el secret de Auth0 salen de los secrets del *Environment* de GitHub (`dev` o `prod`). Si falta alguna, el deploy se corta con un error que dice cuál.
 
@@ -186,6 +187,21 @@ configs:
 
 Si no se sube la versión, el deploy falla porque la config ya existe con otro contenido. Los archivos que no cambian quedan con su versión.
 
+## New Relic
+
+Observabilidad del sistema: la cátedra baja un servicio, en dev o en prod, y tenemos que enterarnos. Las decisiones están en **Observabilidad (New Relic)** de [Decisiones técnicas](https://github.com/MartinaCousido/SnippetSearcher#decisiones-técnicas) de SnippetSearcher.
+
+| Qué | Cómo llega a New Relic |
+|---|---|
+| Snippet, Permission, PrintScript y Asset Service | El agente Java de cada imagen. El stack le pasa `NEW_RELIC_LICENSE_KEY` y el nombre por ambiente (`NEW_RELIC_APP_NAME`, por ejemplo `snippet-service (dev)`). Manda métricas, traces y los logs del servicio |
+| La VM | El **agente de infraestructura** (`newrelic/infrastructure-bundle`), con el nombre `snippetsearcher-dev` o `snippetsearcher-prod` y el atributo `environment`. Mide CPU, memoria, disco y red, y ve cada contenedor |
+| Logs de los contenedores (proxy, Postgres, Redis, Azurite y el resto) | El mismo agente de infraestructura lee los logs que Docker guarda en la VM ([`newrelic-infra/logging.yml`](newrelic-infra/logging.yml)). Cada línea lleva el servicio de Swarm del que sale (`x-logging` en `docker-stack.yml`) |
+| ¿Anda el sistema? | `GET /api/health`, que el proxy le pasa a Snippet Service: `UP` o `DOWN`. Lo miran los synthetics |
+
+- **El agente de infraestructura no va en el stack:** necesita permisos sobre la VM (`--privileged`, la red y los procesos del host) que un servicio de Swarm no puede tener. Lo levanta el CD por SSH con `docker run`, en cada deploy. Sigue versionado y no se instala nada a mano.
+- **Los logs de los servicios Java llegan dos veces:** los manda su agente (con el `requestId`, el usuario y el `trace.id`) y también el agente de infraestructura (como texto, con `logtype: docker`). Para buscarlos, conviene filtrar por `entity.name` (`snippet-service (dev)`); los de los contenedores que no son Java, por el servicio de Swarm.
+- Las synthetics, las alertas y el dashboard se crean con Pulumi en `newrelic/` (#43).
+
 ## Auth0
 
 Auth0 hace el login y entrega los tokens que validan los servicios. Las decisiones están en las filas **Auth0** y **Roles y permisos** de [Decisiones técnicas](https://github.com/MartinaCousido/SnippetSearcher#decisiones-técnicas) de SnippetSearcher.
@@ -271,6 +287,7 @@ Viven en los *Environments* `dev` y `prod` de este repo (**Settings → Environm
 | `SNIPPETS_DB_PASSWORD` | Contraseña de la base de Snippet Service |
 | `PERMISOS_DB_PASSWORD` | Contraseña de la base de Permission Service |
 | `AUTH0_USERS_CLIENT_SECRET` | Secret de la app `snippetsearcher-users-reader` de Auth0. Igual en los dos Environments: hay un solo tenant |
+| `NEW_RELIC_LICENSE_KEY` | License key de New Relic (tipo INGEST - LICENSE). Igual en los dos Environments: hay una sola cuenta |
 
 - Las contraseñas solo pueden tener letras, números, `-`, `_` y `.`: el deploy las lee como variables de la terminal.
 - `AUTH0_USERS_CLIENT_SECRET` se carga desde Pulumi, sin mostrarlo, con `npm run --silent pulumi -- stack output AUTH0_USERS_CLIENT_SECRET --show-secrets | tr -d '\n' | gh secret set AUTH0_USERS_CLIENT_SECRET --env <dev o prod>`, desde `auth0/`.
