@@ -240,6 +240,10 @@ for (const ambiente of ambientes) {
         critical: { operator: "above_or_equals", threshold: 2, thresholdDuration: 180, thresholdOccurrences: "at_least_once" },
         slideBy: 60,
         aggregationWindow: 180,
+        // Sin fallas no llega ningún dato: se cuenta como 0, así el incidente
+        // se cierra solo cuando el synthetic vuelve a pasar.
+        fillOption: "static",
+        fillValue: 0,
     });
 
     // Saturación: mensajes de Redis que no se procesan.
