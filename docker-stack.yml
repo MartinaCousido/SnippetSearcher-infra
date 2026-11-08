@@ -6,21 +6,96 @@
 #   TAG                   Tag de las imágenes: dev o prod.
 #   SNIPPETS_DB_PASSWORD  Contraseña de la base de Snippet Service.
 #   PERMISOS_DB_PASSWORD  Contraseña de la base de Permission Service.
+#   CORS_ALLOWED_ORIGINS  Origins que aceptan Snippet Service y Permission Service.
+#   DOMINIO               Dominio del ambiente, para el certificado y la redirección.
 #
 # Uso: docker stack deploy -c docker-stack.yml snippet-searcher
 version: "3.8"
 
 services:
+  # Reverse proxy: recibe todo en los puertos 80 y 443 y le pasa cada pedido al
+  # servicio que corresponde según la ruta. Es el único servicio con puertos
+  # públicos. Las rutas están en nginx/default.conf.
+  proxy:
+    image: nginx:1.30-alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMINIO: ${DOMINIO:?Falta DOMINIO}
+      # La plantilla solo reemplaza ${DOMINIO}: las variables de nginx ($host…)
+      # quedan como están.
+      NGINX_ENVSUBST_FILTER: ^DOMINIO$$
+    configs:
+      # La imagen oficial convierte las plantillas de /etc/nginx/templates en
+      # archivos de /etc/nginx/conf.d al arrancar.
+      - source: proxy_conf
+        target: /etc/nginx/templates/default.conf.template
+      - source: pagina_no_disponible
+        target: /usr/share/nginx/html/errores/no-disponible.html
+      # Corre antes que nginx: elige el certificado y recarga nginx cuando cambia.
+      - source: proxy_certificado
+        target: /docker-entrypoint.d/40-certificado.sh
+        mode: 0555
+    volumes:
+      - certificados:/etc/letsencrypt:ro
+      - desafios-acme:/var/www/certbot:ro
+    networks:
+      - snippet-net
+    deploy:
+      restart_policy:
+        condition: on-failure
+        delay: 10s
+
+  # Consigue y renueva el certificado de Let's Encrypt (ver certbot/certbot.sh).
+  # Sin puertos: Let's Encrypt llega al desafío a través del proxy.
+  certbot:
+    image: certbot/certbot:v5.8.0
+    entrypoint: ["/bin/sh", "/certbot.sh"]
+    environment:
+      DOMINIO: ${DOMINIO:?Falta DOMINIO}
+      # 0 = el servidor real de Let's Encrypt. 1 = el de pruebas, sin límite de
+      # pedidos, pero el navegador no confía en su certificado.
+      STAGING: "0"
+    configs:
+      - source: certbot_script
+        target: /certbot.sh
+    volumes:
+      - certificados:/etc/letsencrypt
+      - desafios-acme:/var/www/certbot
+    deploy:
+      restart_policy:
+        condition: on-failure
+        delay: 10s
+
+  # UI web (github.com/MartinaCousido/SnippetSearcher-ui). Sin puertos: se llega
+  # a través del proxy, en /.
+  ui:
+    image: ghcr.io/martinacousido/snippet-ui:${TAG:?Falta TAG (dev o prod)}
+    networks:
+      - snippet-net
+    deploy:
+      restart_policy:
+        condition: on-failure
+        delay: 10s
+
   snippet-service:
     image: ghcr.io/martinacousido/snippet-service:${TAG:?Falta TAG (dev o prod)}
-    ports:
-      # Único puerto expuesto a internet (decisión D2).
-      - "80:8080"
+    # Sin puertos: se llega a través del proxy, en /api/.
     environment:
       DB_URL: jdbc:postgresql://snippets-db:5432/snippets
       DB_USER: snippets
       DB_PASSWORD: ${SNIPPETS_DB_PASSWORD:?Falta SNIPPETS_DB_PASSWORD}
       PERMISSION_SERVICE_URL: http://permission-service:8080
+      PRINTSCRIPT_SERVICE_URL: http://printscript-service:8080
+      ASSET_SERVICE_URL: http://asset-service:8080
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:?Falta CORS_ALLOWED_ORIGINS}
+      # Auth0: de qué tenant acepta tokens y para qué API (el "aud"). Hay un solo
+      # tenant para dev y prod, y no son secretos: van fijos (ver Auth0 en el README).
+      AUTH0_DOMAIN: dev-eadjutr73y1lgdc5.us.auth0.com
+      AUTH0_AUDIENCE: https://snippetsearcher-api
+      # Spring Boot lee esta variable solo: no hace falta configurarla en el servicio.
+      SPRING_DATA_REDIS_HOST: redis
     networks:
       - snippet-net
     deploy:
@@ -32,17 +107,77 @@ services:
 
   permission-service:
     image: ghcr.io/martinacousido/permission-service:${TAG:?Falta TAG (dev o prod)}
-    # Sin puertos: solo se llega por la red interna.
+    # Sin puertos: se llega a través del proxy, en /api/permissions/.
     environment:
       DB_URL: jdbc:postgresql://permisos-db:5432/permisos
       DB_USER: permisos
       DB_PASSWORD: ${PERMISOS_DB_PASSWORD:?Falta PERMISOS_DB_PASSWORD}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:?Falta CORS_ALLOWED_ORIGINS}
+      # Auth0: los mismos valores que snippet-service.
+      AUTH0_DOMAIN: dev-eadjutr73y1lgdc5.us.auth0.com
+      AUTH0_AUDIENCE: https://snippetsearcher-api
     networks:
       - snippet-net
     deploy:
       restart_policy:
         condition: on-failure
         delay: 10s
+
+  printscript-service:
+    image: ghcr.io/martinacousido/printscript-service:${TAG:?Falta TAG (dev o prod)}
+    # Sin puertos: solo lo llama Snippet Service, por la red interna.
+    # No tiene base de datos.
+    networks:
+      - snippet-net
+    deploy:
+      restart_policy:
+        condition: on-failure
+        delay: 10s
+
+  # Snippet Storage: guarda el código de los snippets como archivos.
+  # Lo provee la cátedra (github.com/austral-ingsis/asset-service). La imagen
+  # es pública. Sin puertos: solo lo llama Snippet Service.
+  asset-service:
+    image: ghcr.io/austral-ingsis/snippet-asset-service:main.14
+    environment:
+      AZURE_HOST: http://azurite
+      # La imagen trae el agente de New Relic (monitoreo); no se usa.
+      NEW_RELIC_AGENT_ENABLED: "false"
+      NEW_RELIC_APP_NAME: asset-service
+    networks:
+      - snippet-net
+    healthcheck:
+      test: ["CMD", "curl", "-fs", "http://localhost:9090/actuator/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      # Spring Boot tarda en arrancar: los chequeos fallidos no cuentan antes.
+      start_period: 60s
+    deploy:
+      restart_policy:
+        condition: on-failure
+        delay: 10s
+
+  # El bucket: emula Azure Blob Storage. Solo lo usa el Asset Service.
+  azurite:
+    image: mcr.microsoft.com/azure-storage/azurite:3.37.0
+    command: azurite-blob --blobHost 0.0.0.0 --location /data
+    volumes:
+      - azurite-data:/data
+    networks:
+      - snippet-net
+
+  # Cola de mensajes (Redis Streams) para lintear y formatear en segundo plano.
+  # Solo la usa Snippet Service. Sin puertos: solo por la red interna.
+  redis:
+    image: redis:8.2
+    # appendonly guarda cada mensaje en disco: si Redis se reinicia, los
+    # mensajes pendientes siguen ahí y se pueden reintentar.
+    command: redis-server --appendonly yes
+    volumes:
+      - redis-data:/data
+    networks:
+      - snippet-net
 
   snippets-db:
     image: postgres:17
@@ -72,7 +207,32 @@ networks:
   snippet-net:
     driver: overlay
 
-# Los datos de las bases sobreviven a cada deploy.
+# Los datos de las bases, los archivos del bucket y los mensajes de Redis
+# sobreviven a cada deploy.
 volumes:
   snippets-data:
   permisos-data:
+  azurite-data:
+  redis-data:
+  # Certificados de Let's Encrypt y su clave privada. No salen de la VM.
+  certificados:
+  # Archivos del desafío de Let's Encrypt.
+  desafios-acme:
+
+# Archivos de configuración del proxy. Swarm los guarda en la VM y no deja
+# cambiarlos: si se edita un archivo, hay que subir la versión de su nombre
+# (_v1 → _v2). Si no se sube, el deploy falla o la VM sigue con la versión
+# anterior. Los que no cambian quedan con su versión.
+configs:
+  proxy_conf:
+    name: snippet-searcher_proxy_conf_v3
+    file: ./nginx/default.conf
+  pagina_no_disponible:
+    name: snippet-searcher_pagina_no_disponible_v1
+    file: ./nginx/errores/no-disponible.html
+  proxy_certificado:
+    name: snippet-searcher_proxy_certificado_v1
+    file: ./nginx/certificado.sh
+  certbot_script:
+    name: snippet-searcher_certbot_script_v1
+    file: ./certbot/certbot.sh

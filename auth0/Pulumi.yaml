@@ -1,0 +1,11 @@
+name: snippetsearcher-auth0
+description: Recursos de Auth0 de Snippet Searcher (API, permisos, rol, Action, apps y usuarios de prueba)
+runtime:
+  name: nodejs
+  options:
+    packagemanager: npm
+# El estado (lo que Pulumi ya creó) queda en auth0/.pulumi/, no en Pulumi Cloud:
+# no hace falta cuenta ni login. Es relativo a la carpeta desde donde se corre
+# pulumi: usar siempre los scripts de npm, que corren en auth0/.
+backend:
+  url: file://.

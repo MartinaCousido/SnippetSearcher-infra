@@ -50,12 +50,16 @@ Coincide con el flujo de trabajo de los repos: lo que se prueba en dev llega a p
 
 | Servicio | Repo | Estado |
 |---|---|---|
-| `snippet-service` | [SnippetSearcher](https://github.com/MartinaCousido/SnippetSearcher) | ✅ En el stack. Único servicio con puerto público (`80`) |
+| `proxy` | — (imagen oficial `nginx:1.30-alpine`) | ✅ En el stack. Reverse proxy: **único servicio con puertos públicos** (`80` y `443`). Ver [Reverse proxy](#reverse-proxy) y [HTTPS](#https) |
+| `certbot` | — (imagen oficial `certbot/certbot:v5.8.0`) | ✅ En el stack. Consigue y renueva el certificado de HTTPS. Sin puertos. Ver [HTTPS](#https) |
+| `ui` | [SnippetSearcher-ui](https://github.com/MartinaCousido/SnippetSearcher-ui) | ✅ En el stack (`ghcr.io/martinacousido/snippet-ui`). Sin puertos: el proxy le pasa `/`. La imagen la publica el repo de la UI ([SnippetSearcher-ui#10](https://github.com/MartinaCousido/SnippetSearcher-ui/issues/10)) |
+| `snippet-service` | [SnippetSearcher](https://github.com/MartinaCousido/SnippetSearcher) | ✅ En el stack. Sin puertos: el proxy le pasa `/api/` |
 | `snippets-db` | — (imagen oficial `postgres:17`) | ✅ En el stack |
-| `permission-service` | [SnippetPermission](https://github.com/MartinaCousido/SnippetPermission) | ✅ En el stack |
+| `permission-service` | [SnippetPermission](https://github.com/MartinaCousido/SnippetPermission) | ✅ En el stack. Sin puertos: el proxy le pasa `/api/permissions/` |
 | `permisos-db` | — (imagen oficial `postgres:17`) | ✅ En el stack |
-| PrintScript | Usa la librería [ingsis-interpreter](https://github.com/ingsis-ua/ingsis-interpreter) | ⏳ Pendiente: dónde vive el servicio que la expone por HTTP |
-| Asset Service + bucket | — | ⏳ Pendiente: si lo provee la cátedra o se implementa |
+| `printscript-service` | [SnippetPrintScript](https://github.com/MartinaCousido/SnippetPrintScript), que usa la librería [PrintScript](https://github.com/MartinaCousido/PrintScript) (`0.3.0`) | ✅ En el stack. Sin puerto público: Snippet Service lo llama en `http://printscript-service:8080` (variable `PRINTSCRIPT_SERVICE_URL`) |
+| `asset-service` + `azurite` | [asset-service](https://github.com/austral-ingsis/asset-service) de la cátedra (imagen `ghcr.io/austral-ingsis/snippet-asset-service`) y la imagen oficial de Azurite | ✅ En el stack (`main.14` y Azurite `3.37.0`). Sin puertos públicos: Snippet Service lo llama en `http://asset-service:8080` (variable `ASSET_SERVICE_URL`). Los archivos quedan en el volumen `azurite-data` |
+| `redis` | — (imagen oficial `redis:8.2`) | ✅ En el stack. Cola de mensajes (Redis Streams) de Snippet Service, que la encuentra con `SPRING_DATA_REDIS_HOST`. Con `appendonly` y el volumen `redis-data`: los mensajes pendientes sobreviven a un reinicio. Sin puertos públicos |
 
 ## Decisiones técnicas
 
@@ -66,26 +70,40 @@ Coincide con el flujo de trabajo de los repos: lo que se prueba en dev llega a p
 | Rama por ambiente | ✅ Definido | `dev` → VM de dev, `main` → VM de prod |
 | Registry de imágenes | ✅ Definido | GHCR (GitHub Container Registry) |
 | Visibilidad de las imágenes | ✅ Definido | **Públicas.** La VM las descarga sin login ni token. Los repos también son públicos, así que no se expone nada nuevo |
-| Puerto 80 de la VM | ✅ Definido | Lo atiende **Snippet Service directo** (`80:8080` en el stack). Permission Service y las bases no se exponen: solo se ven por la red interna |
+| Puertos 80 y 443 de la VM | ✅ Definido | Los atiende el **`proxy`** (nginx), el único servicio con puertos públicos. Los demás servicios y las bases no se exponen: solo se ven por la red interna |
 | Tags de las imágenes | ✅ Definido | Dos tags por imagen: el del ambiente y el del commit. Ver [Tags de las imágenes](#tags-de-las-imágenes) |
 | Credenciales de las bases | ✅ Definido | El nombre y el usuario de cada base son fijos en el stack (`snippets` y `permisos`), porque no son secretos. Solo la **contraseña** va por variable. Ver [Variables del stack](#variables-del-stack) |
 | Deploy | ✅ Definido | Automático con GitHub Actions; nunca a mano en la VM |
-| PrintScript | ⏳ Pendiente | Si el servicio que envuelve la librería va en un repo propio o dentro de otro |
-| Asset Service / bucket | ⏳ Pendiente | Si lo provee la cátedra o se implementa |
-| Reverse proxy | ⏳ Pendiente | Ver [Reverse proxy (pendiente)](#reverse-proxy-pendiente) |
+| PrintScript | ✅ Definido | Repo propio, [SnippetPrintScript](https://github.com/MartinaCousido/SnippetPrintScript), con el mismo flujo de deploy que los otros servicios. Ver [Servicio de PrintScript](https://github.com/MartinaCousido/SnippetSearcher#decisiones-técnicas) en SnippetSearcher |
+| Asset Service / bucket | ✅ Definido | Lo provee la cátedra: el Asset Service sobre un bucket emulado con **Azurite**. Ver [Snippet Storage](https://github.com/MartinaCousido/SnippetSearcher#decisiones-técnicas) en SnippetSearcher. En el stack desde #14 |
+| Reverse proxy | ✅ Definido | **nginx** en los puertos 80 y 443, con la configuración como Swarm `configs`. Ver [Reverse proxy](#reverse-proxy) |
+| HTTPS | ✅ Definido | **Let's Encrypt + DuckDNS**: `snippetsearcher-dev.duckdns.org` y `snippetsearcher-prod.duckdns.org`. El cifrado termina en el `proxy`, en el puerto 443; adentro de la red de Docker se sigue con HTTP. El servicio `certbot` consigue el certificado; la primera vez, nginx arranca con uno **provisorio autofirmado**. Ver [HTTPS](#https) |
+| CORS | ✅ Definido | Snippet Service y Permission Service aceptan solo los origins de la variable `CORS_ALLOWED_ORIGINS`, que se pasa en el stack (ver [Variables del stack](#variables-del-stack)). Dev: el dominio de dev y `http://localhost:5173`. Prod: solo el dominio de prod. Ver [CORS](https://github.com/MartinaCousido/SnippetSearcher#cors) en SnippetSearcher |
 | Secrets | ✅ Definido | Cinco secrets en cada *Environment* de GitHub (`dev` y `prod`). Ver [Secrets](#secrets) |
+| Auth0 | ✅ Definido | Un solo tenant para dev y prod (`dev-eadjutr73y1lgdc5.us.auth0.com`). Sus recursos se crean con **Pulumi**, en la carpeta `auth0/`. Ver [Auth0](#auth0) y las filas **Auth0** y **Roles y permisos** de [Decisiones técnicas](https://github.com/MartinaCousido/SnippetSearcher#decisiones-técnicas) en SnippetSearcher |
 
 ### Variables del stack
 
-`docker-stack.yml` es el mismo para dev y prod. Lo que cambia entre ambientes son tres variables:
+`docker-stack.yml` es el mismo para dev y prod. Lo que cambia entre ambientes son cinco variables:
 
 | Variable | Para qué | Ejemplo |
 |---|---|---|
 | `TAG` | Tag de las imágenes de los servicios | `dev` o `prod` |
 | `SNIPPETS_DB_PASSWORD` | Contraseña de la base de Snippet Service | — |
 | `PERMISOS_DB_PASSWORD` | Contraseña de la base de Permission Service | — |
+| `CORS_ALLOWED_ORIGINS` | Origins que aceptan Snippet Service y Permission Service (ver [CORS](https://github.com/MartinaCousido/SnippetSearcher#cors)) | dev: `https://snippetsearcher-dev.duckdns.org,http://localhost:5173`. prod: `https://snippetsearcher-prod.duckdns.org` |
+| `DOMINIO` | Dominio del ambiente: el del certificado y el de la redirección a HTTPS | `snippetsearcher-dev.duckdns.org` o `snippetsearcher-prod.duckdns.org` |
 
-En las VMs, las pone el workflow de CD desde los secrets del *Environment* de GitHub (`dev` o `prod`). Si falta alguna, el deploy se corta con un error que dice cuál.
+En las VMs, las pone el workflow de CD. `TAG`, `CORS_ALLOWED_ORIGINS` y `DOMINIO` no son secretos: salen de la rama, en `cd.yml`. Las contraseñas salen de los secrets del *Environment* de GitHub (`dev` o `prod`). Si falta alguna, el deploy se corta con un error que dice cuál.
+
+Lo que **no** cambia entre ambientes va escrito en `docker-stack.yml`, como las URLs entre servicios o el usuario de cada base. Entre esos datos están los de Auth0, que Snippet Service y Permission Service usan para validar los tokens:
+
+| Variable del servicio | Valor | Para qué |
+|---|---|---|
+| `AUTH0_DOMAIN` | `dev-eadjutr73y1lgdc5.us.auth0.com` | El tenant del que se aceptan tokens (el `iss` del token) |
+| `AUTH0_AUDIENCE` | `https://snippetsearcher-api` | La API para la que tiene que ser el token (el `aud`) |
+
+Valen lo mismo en dev y prod porque hay un solo tenant, y no son secretos. Ver [Auth0](#auth0).
 
 Para validar el stack en tu máquina:
 
@@ -106,13 +124,137 @@ Cada push a `dev` o `main` publica la imagen del servicio con **dos tags a la ve
 
 No se usa `latest`: no distingue ambientes y no permite saber qué versión está corriendo.
 
-### Reverse proxy (pendiente)
+### Reverse proxy
 
-Hoy el puerto 80 lo atiende Snippet Service directo, porque es lo único que hay que exponer.
+El servicio `proxy` es un **nginx** que recibe todo en los puertos 80 y 443 y le pasa cada pedido al servicio que corresponde según la ruta. Sigue el modelo de la demo de la cátedra, [austral-ingsis/nginx-docker](https://github.com/austral-ingsis/nginx-docker). Las rutas están en [`nginx/default.conf`](nginx/default.conf).
 
-Cuando se sume la **UI web** (la provee la cátedra) y el login con **Auth0**, va a haber más de una cosa para exponer con un solo puerto. Ahí hace falta un *reverse proxy* (por ejemplo, nginx): recibe todo en el puerto 80 y deriva cada pedido al servicio que corresponde según la URL.
+| Ruta | Va a | Ejemplo |
+|---|---|---|
+| `POST /api/permissions/<id>/share` | `permission-service` | `/api/permissions/<id>/share` → `/permissions/<id>/share` |
+| el resto de `/api/permissions/…` y `/api/actuator…` | — (404) | No se publican: ver abajo |
+| `/api/…` (`snippets`, `rules`, `languages`) | `snippet-service` | `/api/snippets` → `/snippets` |
+| todo lo demás | `ui` | `/snippet/<id>` → `/snippet/<id>` |
 
-Queda para hacer **cuando la cátedra dé la UI y las herramientas necesarias** para configurarlo como corresponde. Agregarlo no rompe nada: se suma el proxy al stack y se le saca el puerto 80 a Snippet Service.
+- El proxy saca el `/api` antes de pasar el pedido: los servicios no conocen ese prefijo.
+- De Permission Service se publica solo **compartir**, que es lo único que usa la UI. Registrar owner, borrar permisos y "¿puede leer o escribir?" los usa Snippet Service por la red interna: si se pudieran llamar desde afuera, un usuario podría, por ejemplo, borrar los permisos de su snippet y dejarlo huérfano. Tampoco se publica el health de los servicios (`/api/actuator`), porque muestra datos internos; adentro de la red y en local sigue igual.
+- La UI tiene una sola `BACKEND_URL` (`/api`, relativa a la página) y queda en la misma dirección que los servicios, así que el navegador no aplica CORS. Igual se configura en cada servicio: ver la fila **CORS** de [Decisiones técnicas](#decisiones-técnicas).
+- Le pasa al servicio los headers `Host`, `X-Forwarded-For` y `X-Forwarded-Proto` (si entró por HTTP o HTTPS). `X-Forwarded-For` **no** lleva la IP del usuario: los puertos se publican en modo `ingress` de Swarm, que le cambia la IP de origen al pedido, y el proxy ve una IP interna de Docker. Para ver la IP real habría que publicar los puertos en modo `host`.
+- Acepta pedidos de hasta **5 MB** (`client_max_body_size`), para crear snippets desde un archivo (US-1). nginx trae 1 MB por defecto.
+- Si un servicio está caído, responde **502** o **504** con una página propia ([`nginx/errores/no-disponible.html`](nginx/errores/no-disponible.html)), y el resto sigue andando. Espera hasta 5 segundos para conectarse a un servicio (`proxy_connect_timeout`), en lugar de los 60 que trae nginx.
+- El puerto 80 solo atiende el desafío de Let's Encrypt y redirige todo lo demás a HTTPS (301). Ver [HTTPS](#https).
+- `nginx/default.conf` es una plantilla: al arrancar, nginx reemplaza `${DOMINIO}` por el dominio del ambiente.
+
+La decisión y el contrato completo están en [Contrato con la UI](https://github.com/MartinaCousido/SnippetSearcher#contrato-con-la-ui) de SnippetSearcher.
+
+### HTTPS
+
+El usuario entra por `https://<dominio>`. El cifrado termina en el `proxy`: a los servicios se les sigue hablando con HTTP, dentro de la red de Docker. El certificado lo da **Let's Encrypt**, gratis, y dura 90 días. Lo consigue y lo renueva el servicio **`certbot`** ([`certbot/certbot.sh`](certbot/certbot.sh)).
+
+```
+                 ┌──────────────────── VM ─────────────────────┐
+navegador ─443─▶ │ proxy (nginx) ──HTTP──▶ ui, snippet-service… │
+navegador ──80─▶ │   └─ 301 a https://<dominio>                 │
+Let's Encrypt ─▶ │   └─ /.well-known/acme-challenge/ ◀─ certbot │
+                 │      volúmenes: certificados, desafios-acme  │
+                 └──────────────────────────────────────────────┘
+```
+
+Cómo se consigue el certificado:
+
+1. **Provisorio.** nginx no arranca con HTTPS sin un certificado, y Let's Encrypt necesita a nginx para comprobar que el dominio es nuestro. Por eso, la primera vez, `certbot` crea un certificado **autofirmado** y nginx arranca con ese. El navegador avisa que no es seguro hasta que llega el real.
+2. **Desafío.** `certbot` deja un archivo en el volumen `desafios-acme`, y el proxy lo sirve en `http://<dominio>/.well-known/acme-challenge/`. Let's Encrypt lo pide: si lo encuentra, el dominio es nuestro. Antes de pedir el certificado, `certbot` comprueba que ese archivo se ve desde afuera: cada pedido fallido cuenta para el límite de Let's Encrypt (5 por hora).
+3. **Real.** `certbot` guarda el certificado en el volumen `certificados`. El proxy mira cada minuto si cambió ([`nginx/certificado.sh`](nginx/certificado.sh)) y recarga nginx, sin cortar.
+4. **Renovación.** Cada 12 horas, `certbot renew` renueva el certificado si le faltan menos de 30 días. El proxy lo nota igual que en el paso 3.
+
+- **Staging.** El servicio `certbot` usa el servidor real de Let's Encrypt (`STAGING: "0"`). Con `"1"` usa el de pruebas: no tiene límite de pedidos, pero el navegador no confía en su certificado. Sirve para probar un cambio en el flujo. Al volver a `"0"`, `certbot` pide el real y reemplaza el de pruebas.
+- **HSTS.** El proxy le dice al navegador que use siempre HTTPS con el dominio, durante un año (`Strict-Transport-Security`).
+- **La clave privada** (`privkey.pem`) vive solo en el volumen `certificados` de la VM. Nunca se commitea ni sale de la VM.
+- La cuenta de Let's Encrypt se crea sin email.
+
+#### Cambiar la configuración del proxy
+
+Los archivos de `nginx/` y `certbot/` entran a los contenedores como **Swarm `configs`**: Swarm guarda una copia en la VM y no deja cambiarla. Por eso, cada vez que se edita uno de esos archivos, hay que subir la versión de su nombre en `docker-stack.yml`:
+
+```yaml
+configs:
+  proxy_conf:
+    name: snippet-searcher_proxy_conf_v2   # antes _v1
+    file: ./nginx/default.conf
+```
+
+Si no se sube la versión, el deploy falla porque la config ya existe con otro contenido. Los archivos que no cambian quedan con su versión.
+
+## Auth0
+
+Auth0 hace el login y entrega los tokens que validan los servicios. Las decisiones están en las filas **Auth0** y **Roles y permisos** de [Decisiones técnicas](https://github.com/MartinaCousido/SnippetSearcher#decisiones-técnicas) de SnippetSearcher.
+
+Los recursos de Auth0 no se crean a mano en el dashboard: están escritos como código en [`auth0/index.ts`](auth0/index.ts), con **Pulumi** (una herramienta que crea y actualiza recursos a partir de código). Sigue el `setup/` de la demo de la cátedra, [austral-ingsis/auth0-integration](https://github.com/austral-ingsis/auth0-integration). `npm run up` los crea igual cada vez, y si alguien los cambia en el dashboard, el siguiente `npm run up` los vuelve a dejar como dice el código.
+
+### Qué crea
+
+| Recurso | Nombre | Para qué |
+|---|---|---|
+| API | `snippetsearcher-api`, identificador `https://snippetsearcher-api` | Los servicios. El identificador es el `aud` del token |
+| Permisos de la API | `read:snippets` y `write:snippets` | Lo que revisa cada servicio. Con **RBAC** activado: Auth0 da un permiso solo si el usuario lo tiene por su rol |
+| Rol | `snippet-user`, con los dos permisos | Hoy lo reciben todos los usuarios |
+| Action de login | `rol-por-defecto` | Le da `snippet-user` a cada usuario que inicia sesión sin rol, y agrega los permisos a ese primer token. Saltea a los usuarios con `app_metadata.sinRolPorDefecto` |
+| App *Machine to Machine* | `snippetsearcher-role-assigner` | La usa la Action para asignar el rol. Solo tiene el permiso `update:users` de la Management API |
+| App SPA | `snippetsearcher-ui` | La UI. Acepta `http://localhost:5173` y los dominios de dev y prod. Usa *refresh tokens* con rotación, para no depender de cookies de terceros |
+| App nativa | `snippetsearcher-token-script` | `npm run token`: consigue un token desde la terminal |
+| Usuarios de prueba | `ana@example.com` y `leo@example.com` con el rol; `sin-rol@example.com` sin rol | Cypress, probar compartir y ver el 403. `example.com` es un dominio reservado que nunca recibe mails |
+
+### Primera vez
+
+Se hace una vez, desde tu máquina. Requiere Node.js 20.12 o más nuevo.
+
+1. **En el dashboard de Auth0**, crear la app que usa Pulumi. Es el único paso a mano:
+   1. *Applications → Applications → Create Application*, con el nombre `pulumi` y el tipo **Machine to Machine**.
+   2. Elegir **Auth0 Management API**, tocar **Select all** y **Authorize**.
+   3. En su pestaña *Settings*, copiar el **Client ID** y el **Client Secret**.
+2. **Completar `auth0/.env`**, que no se commitea:
+
+   ```bash
+   cd auth0
+   cp .env.example .env
+   ```
+
+   | Variable | Valor |
+   |---|---|
+   | `AUTH0_DOMAIN` | El dominio del tenant. Ya viene completo |
+   | `AUTH0_CLIENT_ID` / `AUTH0_CLIENT_SECRET` | Los de la app `pulumi` |
+   | `USUARIOS_PASSWORD` | La contraseña de los usuarios de prueba: 8 caracteres o más, con minúsculas, mayúsculas y números |
+   | `PULUMI_CONFIG_PASSPHRASE` | Cualquier texto. Cifra los secretos del estado de Pulumi. Hay que guardarlo: todos los comandos piden el mismo |
+
+3. **Instalar y crear el stack:**
+
+   ```bash
+   npm install
+   npm run init       # crea el stack "snippetsearcher"
+   npm run preview    # muestra qué va a crear, sin tocar Auth0
+   npm run up         # lo crea (pide confirmar)
+   ```
+
+4. **Probar:** `npm run token` abre el login de Auth0 en el navegador. Al entrar con `ana@example.com`, la terminal muestra el token, con `aud: https://snippetsearcher-api` y `scope: read:snippets write:snippets`. Con `sin-rol@example.com`, el `scope` sale sin esos permisos.
+
+### Comandos
+
+Todos se corren desde `auth0/` y leen `auth0/.env`.
+
+| Comando | Qué hace |
+|---|---|
+| `npm run preview` | Muestra qué cambiaría, sin tocar Auth0 |
+| `npm run up` | Aplica los cambios de `index.ts` |
+| `npm run refresh` | Lee el estado real de Auth0 y muestra las diferencias con el código |
+| `npm run outputs` | Muestra las salidas: `AUTH0_DOMAIN`, `AUTH0_AUDIENCE`, el client id de la UI y los usuarios |
+| `npm run token` | Consigue un access token (por defecto, con `read:snippets write:snippets`). `export TOKEN=$(npm run --silent token)` lo guarda para usarlo con `curl` |
+| `npm run destroy` | Borra todo lo que creó Pulumi |
+
+### Para tener en cuenta
+
+- **El estado de Pulumi** (lo que ya creó) vive en `auth0/.pulumi/` y `auth0/Pulumi.snippetsearcher.yaml`, en la máquina de Martina, y no se commitea. Solo desde ahí se pueden aplicar cambios. Si se pierde, hay que borrar los recursos en el dashboard y volver a correr `npm run up`.
+- **Cambiar un rol o un permiso:** se edita `index.ts` y se corre `npm run up`. No se toca el dashboard.
+- **Roles nuevos:** si la cátedra pide roles por tipo de usuario, se crean en `index.ts` y se reparten los permisos. Los servicios no cambian.
+- **Los mismos recursos sirven para dev y prod:** hay un solo tenant.
 
 ## Secrets
 
@@ -135,21 +277,23 @@ Viven en los *Environments* `dev` y `prod` de este repo (**Settings → Environm
 
 1. Valida `docker-stack.yml` con `docker stack config`.
 2. Entra a la VM por SSH con `VM_SSH_KEY`.
-3. Copia `docker-stack.yml` a `~/snippet-searcher/` en la VM.
-4. Corre `docker stack deploy --prune` con las variables del ambiente. `--prune` borra los servicios que ya no estén en el stack.
-5. Espera hasta 5 minutos a que cada servicio esté en `1/1`. Si no llega, el workflow falla y muestra qué servicio no arrancó.
+3. Copia `docker-stack.yml` y las carpetas `nginx/` y `certbot/` a `~/snippet-searcher/` en la VM.
+4. Si `snippet-service` todavía publica el puerto 80, se lo saca. Pasa una sola vez por VM, en la primera vez que se despliega el proxy (#23): sin este paso, Swarm puede crear el proxy antes de liberar el puerto, y el deploy falla.
+5. Corre `docker stack deploy --prune` con las variables del ambiente. `--prune` borra los servicios que ya no estén en el stack.
+6. Espera hasta 5 minutos a que cada servicio esté en `1/1`. Si no llega, el workflow falla y muestra qué servicio no arrancó.
 
 Para que funcione, **la VM tiene que estar prendida**. Si estaba apagada, se prende desde el portal de Azure y se vuelve a correr el workflow desde la pestaña *Actions* (**Re-run jobs**).
 
 ## Preparar una VM
 
-Se hace una vez por ambiente, a mano, desde el portal de Azure:
+Se hace una vez por ambiente, a mano, desde el portal de Azure y DuckDNS:
 
 1. Crear la máquina virtual con el tamaño más barato, **IP pública** y acceso por **SSH** con un par de claves nuevo.
-2. Abrir el **puerto 80**.
-3. Entrar por SSH: `ssh -i <clave>.pem azureuser@<ip-publica>`.
-4. Instalar Docker.
-5. Inicializar Swarm: `docker swarm init`.
+2. Abrir los **puertos 80 y 443**, y hacer **estática** la IP pública (si cambia, el dominio deja de apuntar a la VM).
+3. En [DuckDNS](https://www.duckdns.org), crear el subdominio del ambiente (`snippetsearcher-dev` o `snippetsearcher-prod`) con la IP pública de la VM.
+4. Entrar por SSH: `ssh -i <clave>.pem azureuser@<ip-publica>`.
+5. Instalar Docker.
+6. Inicializar Swarm: `docker swarm init`.
 
 A partir de ahí, todo lo que corre en la VM lo despliegan los workflows de GitHub. La clave `.pem` **nunca** se commitea.
 

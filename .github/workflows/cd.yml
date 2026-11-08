@@ -25,6 +25,11 @@ jobs:
     environment: ${{ github.ref_name == 'main' && 'prod' || 'dev' }}
     env:
       TAG: ${{ github.ref_name == 'main' && 'prod' || 'dev' }}
+      # Origins que aceptan Snippet Service y Permission Service (ver CORS en
+      # el README de SnippetSearcher). No es secreto: queda versionado acá.
+      CORS_ALLOWED_ORIGINS: ${{ github.ref_name == 'main' && 'https://snippetsearcher-prod.duckdns.org' || 'https://snippetsearcher-dev.duckdns.org,http://localhost:5173' }}
+      # Dominio del ambiente, para el certificado de HTTPS y la redirección.
+      DOMINIO: ${{ github.ref_name == 'main' && 'snippetsearcher-prod.duckdns.org' || 'snippetsearcher-dev.duckdns.org' }}
       SNIPPETS_DB_PASSWORD: ${{ secrets.SNIPPETS_DB_PASSWORD }}
       PERMISOS_DB_PASSWORD: ${{ secrets.PERMISOS_DB_PASSWORD }}
     steps:
@@ -43,12 +48,42 @@ jobs:
           chmod 600 ~/.ssh/vm.pem
           ssh-keyscan -T 15 -H "$VM_HOST" >> ~/.ssh/known_hosts
 
-      - name: Copiar docker-stack.yml a la VM
+      - name: Copiar el stack y la configuración del proxy y de certbot a la VM
         env:
           VM: ${{ secrets.VM_USER }}@${{ secrets.VM_HOST }}
+        # Se borran nginx/ y certbot/ antes de copiarlas, para que no queden archivos
+        # viejos.
         run: |
-          ssh -i ~/.ssh/vm.pem "$VM" 'mkdir -p ~/snippet-searcher'
+          ssh -i ~/.ssh/vm.pem "$VM" 'mkdir -p ~/snippet-searcher && rm -rf ~/snippet-searcher/nginx ~/snippet-searcher/certbot'
           scp -i ~/.ssh/vm.pem docker-stack.yml "$VM:~/snippet-searcher/docker-stack.yml"
+          scp -r -i ~/.ssh/vm.pem nginx "$VM:~/snippet-searcher/nginx"
+          scp -r -i ~/.ssh/vm.pem certbot "$VM:~/snippet-searcher/certbot"
+
+      - name: Liberar el puerto 80 de snippet-service
+        env:
+          VM: ${{ secrets.VM_USER }}@${{ secrets.VM_HOST }}
+        # Hasta #23, snippet-service publicaba el 80. Ahora es del proxy, pero
+        # docker stack deploy puede crear el proxy antes de sacarle el puerto a
+        # snippet-service, y falla. Por eso se le saca acá, antes del deploy.
+        # Si snippet-service ya no publica el 80, no hace nada.
+        # --publish-rm busca el puerto por el del contenedor (target=8080), no
+        # por el de la VM: con --publish-rm 80 no saca nada. Si después del
+        # update el 80 sigue publicado, el paso falla.
+        run: |
+          ssh -i ~/.ssh/vm.pem "$VM" '
+            set -e
+            puertos() {
+              docker service inspect snippet-searcher_snippet-service \
+                --format "{{range .Endpoint.Spec.Ports}}{{.PublishedPort}} {{end}}" 2>/dev/null || true
+            }
+            if puertos | grep -qw 80; then
+              docker service update --publish-rm published=80,target=8080 snippet-searcher_snippet-service
+              if puertos | grep -qw 80; then
+                echo "snippet-service sigue publicando el puerto 80"
+                exit 1
+              fi
+            fi
+          '
 
       - name: Desplegar el stack
         env:
@@ -57,8 +92,8 @@ jobs:
         # comandos: así las contraseñas no quedan en el historial de la VM.
         # --prune borra los servicios que ya no están en el stack.
         run: |
-          printf 'TAG=%s\nSNIPPETS_DB_PASSWORD=%s\nPERMISOS_DB_PASSWORD=%s\n' \
-            "$TAG" "$SNIPPETS_DB_PASSWORD" "$PERMISOS_DB_PASSWORD" |
+          printf 'TAG=%s\nSNIPPETS_DB_PASSWORD=%s\nPERMISOS_DB_PASSWORD=%s\nCORS_ALLOWED_ORIGINS=%s\nDOMINIO=%s\n' \
+            "$TAG" "$SNIPPETS_DB_PASSWORD" "$PERMISOS_DB_PASSWORD" "$CORS_ALLOWED_ORIGINS" "$DOMINIO" |
           ssh -i ~/.ssh/vm.pem "$VM" '
             set -e
             set -a; . /dev/stdin; set +a
