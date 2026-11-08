@@ -202,7 +202,19 @@ Observabilidad del sistema: la cátedra baja un servicio, en dev o en prod, y te
 - **El agente de infraestructura no va en el stack:** necesita permisos sobre la VM (`--privileged`, la red y los procesos del host) que un servicio de Swarm no puede tener. Lo levanta el CD por SSH con `docker run`, en cada deploy. Sigue versionado y no se instala nada a mano.
 - **Los logs de los servicios Java no pasan por `logs`:** los manda su agente, con el `requestId`, el usuario y el `trace.id`. Se buscan por `entity.name` (`snippet-service (dev)`); los demás, por `service`.
 - **La imagen del agente de infraestructura en contenedor no trae fluent-bit**, así que no puede mandar logs: por eso están separados. El servicio `logs` no necesita permisos especiales (solo lee los logs de Docker) y va en el stack.
-- Las synthetics, las alertas y el dashboard se crean con Pulumi en `newrelic/` (#43).
+### Synthetics, alertas y dashboard
+
+Están escritos como código en [`newrelic/index.ts`](newrelic/index.ts), con **Pulumi**, igual que Auth0: `npm run up` los crea y los deja como dice el código. Se corren desde `newrelic/`, con su `.env` (ver [`newrelic/.env.example`](newrelic/.env.example)). El estado de Pulumi vive en la máquina de Martina y no se commitea.
+
+| Qué | Dev y prod, cada uno |
+|---|---|
+| **Synthetics** | Cada minuto, desde dos regiones de Estados Unidos: la UI responde y `/api/health` dice `UP`. Cada 6 horas, un script ([`synthetic-snippet.js`](newrelic/synthetic-snippet.js)) crea, lee y borra un snippet con la app de Auth0 `snippetsearcher-synthetics` (su secret es una credencial segura de New Relic). Los chequeos de script tienen límite en el plan gratis: para la demo, se corre a mano con *Run check* |
+| **Alertas** (política `Snippet Searcher <ambiente>`) | Servicio Java sin datos 3 minutos (caído) · un servicio del stack sin contenedor corriendo 3 minutos · la VM sin datos 3 minutos · CPU, memoria o disco de la VM por encima del 90 % 5 minutos · errores por encima del 5 % · latencia p99 por encima de 2 s · un synthetic que falla 2 veces en 3 minutos · más de 100 mensajes pendientes en Redis. Un incidente por condición y por servicio |
+| **Avisos** | Cada incidente avisa por mail y por notificación push en la app de New Relic del celular |
+| **Dashboard** | `Snippet Searcher`, una página por ambiente: alertas abiertas, contenedores corriendo por servicio, % de synthetics que pasan, pedidos, errores y p99 por servicio, CPU, memoria y disco de la VM, pendientes de Redis y los logs con error |
+
+- **Ambientes activos:** un ambiente que todavía no manda datos se crea **apagado** (`activos` en `index.ts`): synthetics en pausa, alertas desactivadas y sin avisos; si no, avisaría que todo está caído. Hoy está activo dev; prod se prende con el pase a prod.
+- Comandos, desde `newrelic/`: `npm run preview` (qué cambiaría), `npm run up` (lo aplica), `npm run outputs` (el link del dashboard).
 
 ## Auth0
 
@@ -221,6 +233,7 @@ Los recursos de Auth0 no se crean a mano en el dashboard: están escritos como c
 | App *Machine to Machine* | `snippetsearcher-role-assigner` | La usa la Action para asignar el rol. Solo tiene el permiso `update:users` de la Management API |
 | App SPA | `snippetsearcher-ui` | La UI. Acepta `http://localhost:5173` y los dominios de dev y prod. Usa *refresh tokens* con rotación, para no depender de cookies de terceros |
 | App *Machine to Machine* | `snippetsearcher-users-reader` | La usa Snippet Service para buscar usuarios y mostrar el email del autor (módulo User). Solo tiene el permiso `read:users` de la Management API. Su secret va a los Environments (ver [Secrets](#secrets)) |
+| App *Machine to Machine* | `snippetsearcher-synthetics` | La usa el synthetic de New Relic que crea, lee y borra un snippet (ver [New Relic](#new-relic)). Pide un token para la API con `read:snippets` y `write:snippets`, sin usuario. Su secret va a New Relic como credencial segura |
 | App nativa | `snippetsearcher-token-script` | `npm run token`: consigue un token desde la terminal |
 | Usuarios de prueba | `ana@example.com` y `leo@example.com` con el rol; `sin-rol@example.com` sin rol | Cypress, probar compartir y ver el 403. `example.com` es un dominio reservado que nunca recibe mails |
 
