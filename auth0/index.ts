@@ -150,6 +150,28 @@ const usersReaderSecret = auth0
     .getClientOutput({ clientId: usersReader.clientId })
     .apply(client => pulumi.secret(client.clientSecret));
 
+// --- Synthetics de New Relic ----------------------------------------------
+
+// App Machine to Machine con la que el synthetic de New Relic crea, lee y
+// borra un snippet en dev y en prod (ver newrelic/). Pide un token para la API
+// con los dos permisos, sin usuario: el "sub" es el de la app. Su secret va a
+// New Relic como credencial segura.
+const synthetics = new auth0.Client("synthetics", {
+    name: "snippetsearcher-synthetics",
+    appType: "non_interactive",
+    grantTypes: ["client_credentials"],
+});
+
+new auth0.ClientGrant("synthetics-grant", {
+    clientId: synthetics.clientId,
+    audience: api.identifier,
+    scopes: [readSnippets, writeSnippets],
+}, { dependsOn: [apiScopes] });
+
+const syntheticsSecret = auth0
+    .getClientOutput({ clientId: synthetics.clientId })
+    .apply(client => pulumi.secret(client.clientSecret));
+
 // --- Rol por defecto: Action de login --------------------------------------
 
 // App Machine to Machine que usa la Action para asignar el rol. Solo tiene
@@ -274,6 +296,9 @@ export const tokenScriptCallbackUrl = tokenScriptCallback;
 // Para Snippet Service. El secret sale cifrado: se ve solo con --show-secrets.
 export const AUTH0_USERS_CLIENT_ID = usersReader.clientId;
 export const AUTH0_USERS_CLIENT_SECRET = usersReaderSecret;
+// Para los synthetics de New Relic (newrelic/). El secret sale cifrado.
+export const SYNTHETICS_CLIENT_ID = synthetics.clientId;
+export const SYNTHETICS_CLIENT_SECRET = syntheticsSecret;
 export const users = {
     conRol: [ana.email, leo.email],
     sinRol: sinRol.email,

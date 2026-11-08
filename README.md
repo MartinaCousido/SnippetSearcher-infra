@@ -52,6 +52,7 @@ Coincide con el flujo de trabajo de los repos: lo que se prueba en dev llega a p
 |---|---|---|
 | `proxy` | — (imagen oficial `nginx:1.30-alpine`) | ✅ En el stack. Reverse proxy: **único servicio con puertos públicos** (`80` y `443`). Ver [Reverse proxy](#reverse-proxy) y [HTTPS](#https) |
 | `certbot` | — (imagen oficial `certbot/certbot:v5.8.0`) | ✅ En el stack. Consigue y renueva el certificado de HTTPS. Sin puertos. Ver [HTTPS](#https) |
+| `logs` | — (imagen `newrelic/newrelic-fluentbit-output:3.11.0`) | ✅ En el stack. Manda a New Relic los logs de los contenedores sin agente propio. Uno por VM (`mode: global`). Sin puertos. Ver [New Relic](#new-relic) |
 | `ui` | [SnippetSearcher-ui](https://github.com/MartinaCousido/SnippetSearcher-ui) | ✅ En el stack (`ghcr.io/martinacousido/snippet-ui`). Sin puertos: el proxy le pasa `/`. La imagen la publica el repo de la UI ([SnippetSearcher-ui#10](https://github.com/MartinaCousido/SnippetSearcher-ui/issues/10)) |
 | `snippet-service` | [SnippetSearcher](https://github.com/MartinaCousido/SnippetSearcher) | ✅ En el stack. Sin puertos: el proxy le pasa `/api/` |
 | `snippets-db` | — (imagen oficial `postgres:17`) | ✅ En el stack |
@@ -79,12 +80,12 @@ Coincide con el flujo de trabajo de los repos: lo que se prueba en dev llega a p
 | Reverse proxy | ✅ Definido | **nginx** en los puertos 80 y 443, con la configuración como Swarm `configs`. Ver [Reverse proxy](#reverse-proxy) |
 | HTTPS | ✅ Definido | **Let's Encrypt + DuckDNS**: `snippetsearcher-dev.duckdns.org` y `snippetsearcher-prod.duckdns.org`. El cifrado termina en el `proxy`, en el puerto 443; adentro de la red de Docker se sigue con HTTP. El servicio `certbot` consigue el certificado; la primera vez, nginx arranca con uno **provisorio autofirmado**. Ver [HTTPS](#https) |
 | CORS | ✅ Definido | Snippet Service y Permission Service aceptan solo los origins de la variable `CORS_ALLOWED_ORIGINS`, que se pasa en el stack (ver [Variables del stack](#variables-del-stack)). Dev: el dominio de dev y `http://localhost:5173`. Prod: solo el dominio de prod. Ver [CORS](https://github.com/MartinaCousido/SnippetSearcher#cors) en SnippetSearcher |
-| Secrets | ✅ Definido | Seis secrets en cada *Environment* de GitHub (`dev` y `prod`). Ver [Secrets](#secrets) |
+| Secrets | ✅ Definido | Siete secrets en cada *Environment* de GitHub (`dev` y `prod`). Ver [Secrets](#secrets) |
 | Auth0 | ✅ Definido | Un solo tenant para dev y prod (`dev-eadjutr73y1lgdc5.us.auth0.com`). Sus recursos se crean con **Pulumi**, en la carpeta `auth0/`. Ver [Auth0](#auth0) y las filas **Auth0** y **Roles y permisos** de [Decisiones técnicas](https://github.com/MartinaCousido/SnippetSearcher#decisiones-técnicas) en SnippetSearcher |
 
 ### Variables del stack
 
-`docker-stack.yml` es el mismo para dev y prod. Lo que cambia entre ambientes, o es secreto, son seis variables:
+`docker-stack.yml` es el mismo para dev y prod. Lo que cambia entre ambientes, o es secreto, son siete variables:
 
 | Variable | Para qué | Ejemplo |
 |---|---|---|
@@ -94,6 +95,7 @@ Coincide con el flujo de trabajo de los repos: lo que se prueba en dev llega a p
 | `CORS_ALLOWED_ORIGINS` | Origins que aceptan Snippet Service y Permission Service (ver [CORS](https://github.com/MartinaCousido/SnippetSearcher#cors)) | dev: `https://snippetsearcher-dev.duckdns.org,http://localhost:5173`. prod: `https://snippetsearcher-prod.duckdns.org` |
 | `DOMINIO` | Dominio del ambiente: el del certificado y el de la redirección a HTTPS | `snippetsearcher-dev.duckdns.org` o `snippetsearcher-prod.duckdns.org` |
 | `AUTH0_USERS_CLIENT_SECRET` | Secret de la app `snippetsearcher-users-reader`, con la que Snippet Service lee usuarios de Auth0 (módulo User). Es el mismo en dev y prod, pero es secreto | — |
+| `NEW_RELIC_LICENSE_KEY` | License key de New Relic: la usan los agentes de los servicios y el de infraestructura. Es la misma en dev y prod, pero es secreta | — |
 
 En las VMs, las pone el workflow de CD. `TAG`, `CORS_ALLOWED_ORIGINS` y `DOMINIO` no son secretos: salen de la rama, en `cd.yml`. Las contraseñas y el secret de Auth0 salen de los secrets del *Environment* de GitHub (`dev` o `prod`). Si falta alguna, el deploy se corta con un error que dice cuál.
 
@@ -186,6 +188,34 @@ configs:
 
 Si no se sube la versión, el deploy falla porque la config ya existe con otro contenido. Los archivos que no cambian quedan con su versión.
 
+## New Relic
+
+Observabilidad del sistema: la cátedra baja un servicio, en dev o en prod, y tenemos que enterarnos. Las decisiones están en **Observabilidad (New Relic)** de [Decisiones técnicas](https://github.com/MartinaCousido/SnippetSearcher#decisiones-técnicas) de SnippetSearcher.
+
+| Qué | Cómo llega a New Relic |
+|---|---|
+| Snippet, Permission, PrintScript y Asset Service | El agente Java de cada imagen. El stack le pasa `NEW_RELIC_LICENSE_KEY` y el nombre por ambiente (`NEW_RELIC_APP_NAME`, por ejemplo `snippet-service (dev)`). Manda métricas, traces y los logs del servicio |
+| La VM | El **agente de infraestructura** (`newrelic/infrastructure-bundle`), con el nombre `snippetsearcher-dev` o `snippetsearcher-prod` y el atributo `environment`. Mide CPU, memoria, disco y red, y ve cada contenedor |
+| Logs de los contenedores sin agente (proxy, certbot, ui, Postgres, Redis, Azurite) | El servicio **`logs`** del stack: fluent-bit con el conector de New Relic (`newrelic/newrelic-fluentbit-output`), uno por VM. Lee los logs que Docker guarda en la VM ([`newrelic-logs/fluent-bit.conf`](newrelic-logs/fluent-bit.conf)). Cada línea lleva su servicio (`service`, por ejemplo `snippet-searcher_redis`), el ambiente (`environment`) y `logtype: docker` |
+| ¿Anda el sistema? | `GET /api/health`, que el proxy le pasa a Snippet Service: `UP` o `DOWN`. Lo miran los synthetics |
+
+- **El agente de infraestructura no va en el stack:** necesita permisos sobre la VM (`--privileged`, la red y los procesos del host) que un servicio de Swarm no puede tener. Lo levanta el CD por SSH con `docker run`, en cada deploy. Sigue versionado y no se instala nada a mano.
+- **Los logs de los servicios Java no pasan por `logs`:** los manda su agente, con el `requestId`, el usuario y el `trace.id`. Se buscan por `entity.name` (`snippet-service (dev)`); los demás, por `service`.
+- **La imagen del agente de infraestructura en contenedor no trae fluent-bit**, así que no puede mandar logs: por eso están separados. El servicio `logs` no necesita permisos especiales (solo lee los logs de Docker) y va en el stack.
+### Synthetics, alertas y dashboard
+
+Están escritos como código en [`newrelic/index.ts`](newrelic/index.ts), con **Pulumi**, igual que Auth0: `npm run up` los crea y los deja como dice el código. Se corren desde `newrelic/`, con su `.env` (ver [`newrelic/.env.example`](newrelic/.env.example)). El estado de Pulumi vive en la máquina de Martina y no se commitea.
+
+| Qué | Dev y prod, cada uno |
+|---|---|
+| **Synthetics** | Cada minuto, desde dos regiones de Estados Unidos: la UI responde y `/api/health` dice `UP`. Cada 6 horas, un script ([`synthetic-snippet.js`](newrelic/synthetic-snippet.js)) crea, lee y borra un snippet con la app de Auth0 `snippetsearcher-synthetics` (su secret es una credencial segura de New Relic). Los chequeos de script tienen límite en el plan gratis: para la demo, se corre a mano con *Run check* |
+| **Alertas** (política `Snippet Searcher <ambiente>`) | Servicio Java sin datos 3 minutos (caído) · un servicio del stack sin contenedor corriendo 3 minutos · la VM sin datos 3 minutos · CPU, memoria o disco de la VM por encima del 90 % 5 minutos · errores por encima del 5 % · latencia p99 por encima de 2 s · un synthetic que falla 2 veces en 3 minutos · más de 100 mensajes pendientes en Redis. Un incidente por condición y por servicio |
+| **Avisos** | Cada incidente avisa por mail y por notificación push en la app de New Relic del celular |
+| **Dashboard** | `Snippet Searcher`, una página por ambiente: alertas abiertas, contenedores corriendo por servicio, % de synthetics que pasan, pedidos, errores y p99 por servicio, CPU, memoria y disco de la VM, pendientes de Redis y los logs con error |
+
+- **Ambientes activos:** un ambiente que todavía no manda datos se crea **apagado** (`activos` en `index.ts`): synthetics en pausa, alertas desactivadas y sin avisos; si no, avisaría que todo está caído. Hoy está activo dev; prod se prende con el pase a prod.
+- Comandos, desde `newrelic/`: `npm run preview` (qué cambiaría), `npm run up` (lo aplica), `npm run outputs` (el link del dashboard).
+
 ## Auth0
 
 Auth0 hace el login y entrega los tokens que validan los servicios. Las decisiones están en las filas **Auth0** y **Roles y permisos** de [Decisiones técnicas](https://github.com/MartinaCousido/SnippetSearcher#decisiones-técnicas) de SnippetSearcher.
@@ -203,6 +233,7 @@ Los recursos de Auth0 no se crean a mano en el dashboard: están escritos como c
 | App *Machine to Machine* | `snippetsearcher-role-assigner` | La usa la Action para asignar el rol. Solo tiene el permiso `update:users` de la Management API |
 | App SPA | `snippetsearcher-ui` | La UI. Acepta `http://localhost:5173` y los dominios de dev y prod. Usa *refresh tokens* con rotación, para no depender de cookies de terceros |
 | App *Machine to Machine* | `snippetsearcher-users-reader` | La usa Snippet Service para buscar usuarios y mostrar el email del autor (módulo User). Solo tiene el permiso `read:users` de la Management API. Su secret va a los Environments (ver [Secrets](#secrets)) |
+| App *Machine to Machine* | `snippetsearcher-synthetics` | La usa el synthetic de New Relic que crea, lee y borra un snippet (ver [New Relic](#new-relic)). Pide un token para la API con `read:snippets` y `write:snippets`, sin usuario. Su secret va a New Relic como credencial segura |
 | App nativa | `snippetsearcher-token-script` | `npm run token`: consigue un token desde la terminal |
 | Usuarios de prueba | `ana@example.com` y `leo@example.com` con el rol; `sin-rol@example.com` sin rol | Cypress, probar compartir y ver el 403. `example.com` es un dominio reservado que nunca recibe mails |
 
@@ -271,6 +302,7 @@ Viven en los *Environments* `dev` y `prod` de este repo (**Settings → Environm
 | `SNIPPETS_DB_PASSWORD` | Contraseña de la base de Snippet Service |
 | `PERMISOS_DB_PASSWORD` | Contraseña de la base de Permission Service |
 | `AUTH0_USERS_CLIENT_SECRET` | Secret de la app `snippetsearcher-users-reader` de Auth0. Igual en los dos Environments: hay un solo tenant |
+| `NEW_RELIC_LICENSE_KEY` | License key de New Relic (tipo INGEST - LICENSE). Igual en los dos Environments: hay una sola cuenta |
 
 - Las contraseñas solo pueden tener letras, números, `-`, `_` y `.`: el deploy las lee como variables de la terminal.
 - `AUTH0_USERS_CLIENT_SECRET` se carga desde Pulumi, sin mostrarlo, con `npm run --silent pulumi -- stack output AUTH0_USERS_CLIENT_SECRET --show-secrets | tr -d '\n' | gh secret set AUTH0_USERS_CLIENT_SECRET --env <dev o prod>`, desde `auth0/`.

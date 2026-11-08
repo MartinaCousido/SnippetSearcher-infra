@@ -34,6 +34,7 @@ jobs:
       SNIPPETS_DB_PASSWORD: ${{ secrets.SNIPPETS_DB_PASSWORD }}
       PERMISOS_DB_PASSWORD: ${{ secrets.PERMISOS_DB_PASSWORD }}
       AUTH0_USERS_CLIENT_SECRET: ${{ secrets.AUTH0_USERS_CLIENT_SECRET }}
+      NEW_RELIC_LICENSE_KEY: ${{ secrets.NEW_RELIC_LICENSE_KEY }}
     steps:
       - uses: actions/checkout@v4
 
@@ -53,13 +54,14 @@ jobs:
       - name: Copiar el stack y la configuración del proxy y de certbot a la VM
         env:
           VM: ${{ secrets.VM_USER }}@${{ secrets.VM_HOST }}
-        # Se borran nginx/ y certbot/ antes de copiarlas, para que no queden archivos
-        # viejos.
+        # Se borran nginx/, certbot/ y newrelic-logs/ antes de copiarlas, para que
+        # no queden archivos viejos (newrelic-infra/ ya no se usa).
         run: |
-          ssh -i ~/.ssh/vm.pem "$VM" 'mkdir -p ~/snippet-searcher && rm -rf ~/snippet-searcher/nginx ~/snippet-searcher/certbot'
+          ssh -i ~/.ssh/vm.pem "$VM" 'mkdir -p ~/snippet-searcher && rm -rf ~/snippet-searcher/nginx ~/snippet-searcher/certbot ~/snippet-searcher/newrelic-logs ~/snippet-searcher/newrelic-infra'
           scp -i ~/.ssh/vm.pem docker-stack.yml "$VM:~/snippet-searcher/docker-stack.yml"
           scp -r -i ~/.ssh/vm.pem nginx "$VM:~/snippet-searcher/nginx"
           scp -r -i ~/.ssh/vm.pem certbot "$VM:~/snippet-searcher/certbot"
+          scp -r -i ~/.ssh/vm.pem newrelic-logs "$VM:~/snippet-searcher/newrelic-logs"
 
       - name: Liberar el puerto 80 de snippet-service
         env:
@@ -94,13 +96,38 @@ jobs:
         # comandos: así las contraseñas no quedan en el historial de la VM.
         # --prune borra los servicios que ya no están en el stack.
         run: |
-          printf 'TAG=%s\nSNIPPETS_DB_PASSWORD=%s\nPERMISOS_DB_PASSWORD=%s\nCORS_ALLOWED_ORIGINS=%s\nDOMINIO=%s\nAUTH0_USERS_CLIENT_SECRET=%s\n' \
-            "$TAG" "$SNIPPETS_DB_PASSWORD" "$PERMISOS_DB_PASSWORD" "$CORS_ALLOWED_ORIGINS" "$DOMINIO" "$AUTH0_USERS_CLIENT_SECRET" |
+          printf 'TAG=%s\nSNIPPETS_DB_PASSWORD=%s\nPERMISOS_DB_PASSWORD=%s\nCORS_ALLOWED_ORIGINS=%s\nDOMINIO=%s\nAUTH0_USERS_CLIENT_SECRET=%s\nNEW_RELIC_LICENSE_KEY=%s\n' \
+            "$TAG" "$SNIPPETS_DB_PASSWORD" "$PERMISOS_DB_PASSWORD" "$CORS_ALLOWED_ORIGINS" "$DOMINIO" "$AUTH0_USERS_CLIENT_SECRET" "$NEW_RELIC_LICENSE_KEY" |
           ssh -i ~/.ssh/vm.pem "$VM" '
             set -e
             set -a; . /dev/stdin; set +a
             cd ~/snippet-searcher
             docker stack deploy -c docker-stack.yml --prune --detach=true snippet-searcher
+          '
+
+      # El agente de infraestructura de New Relic mira la VM entera (CPU,
+      # memoria, disco, red y contenedores). Necesita permisos sobre la VM que
+      # un servicio de Swarm no puede tener, así que no va en el stack: se
+      # levanta acá, como un contenedor con docker run, y se recrea en cada
+      # deploy. Los logs de los contenedores no los manda él (su imagen no trae
+      # fluent-bit): los manda el servicio logs del stack.
+      - name: Levantar el agente de infraestructura de New Relic
+        env:
+          VM: ${{ secrets.VM_USER }}@${{ secrets.VM_HOST }}
+        run: |
+          printf 'TAG=%s\nNRIA_LICENSE_KEY=%s\n' "$TAG" "$NEW_RELIC_LICENSE_KEY" |
+          ssh -i ~/.ssh/vm.pem "$VM" '
+            set -e
+            set -a; . /dev/stdin; set +a
+            docker rm -f newrelic-infra > /dev/null 2>&1 || true
+            docker run -d --name newrelic-infra --restart unless-stopped \
+              --network host --pid host --privileged --cap-add SYS_PTRACE \
+              -v /:/host:ro -v /var/run/docker.sock:/var/run/docker.sock \
+              -e NRIA_LICENSE_KEY \
+              -e NRIA_DISPLAY_NAME="snippetsearcher-$TAG" \
+              -e NRIA_CUSTOM_ATTRIBUTES="{\"environment\":\"$TAG\"}" \
+              newrelic/infrastructure-bundle:3.6.2 > /dev/null
+            docker ps --filter name=newrelic-infra --format "{{.Names}} {{.Status}}"
           '
 
       - name: Esperar a que los servicios estén arriba
