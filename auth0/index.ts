@@ -129,6 +129,27 @@ new auth0.ConnectionClient("token-script-connection", {
     clientId: tokenScript.clientId,
 });
 
+// --- Módulo User: leer usuarios ---------------------------------------------
+
+// App Machine to Machine que usa Snippet Service (paquete users/) para buscar
+// usuarios al compartir y mostrar el email del autor. Solo puede leer usuarios
+// (read:users). Su secret va a los Environments de GitHub (ver el README).
+const usersReader = new auth0.Client("users-reader", {
+    name: "snippetsearcher-users-reader",
+    appType: "non_interactive",
+    grantTypes: ["client_credentials"],
+});
+
+new auth0.ClientGrant("users-reader-grant", {
+    clientId: usersReader.clientId,
+    audience: `https://${domain}/api/v2/`,
+    scopes: ["read:users"],
+});
+
+const usersReaderSecret = auth0
+    .getClientOutput({ clientId: usersReader.clientId })
+    .apply(client => pulumi.secret(client.clientSecret));
+
 // --- Rol por defecto: Action de login --------------------------------------
 
 // App Machine to Machine que usa la Action para asignar el rol. Solo tiene
@@ -250,6 +271,9 @@ export const AUTH0_AUDIENCE = api.identifier;
 export const uiClientId = ui.clientId;
 export const tokenScriptClientId = tokenScript.clientId;
 export const tokenScriptCallbackUrl = tokenScriptCallback;
+// Para Snippet Service. El secret sale cifrado: se ve solo con --show-secrets.
+export const AUTH0_USERS_CLIENT_ID = usersReader.clientId;
+export const AUTH0_USERS_CLIENT_SECRET = usersReaderSecret;
 export const users = {
     conRol: [ana.email, leo.email],
     sinRol: sinRol.email,

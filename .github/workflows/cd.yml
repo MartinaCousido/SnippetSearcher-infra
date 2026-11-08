@@ -8,6 +8,7 @@
 #   VM_SSH_KEY            Contenido de la clave .pem de la VM.
 #   SNIPPETS_DB_PASSWORD  Contraseña de la base de Snippet Service.
 #   PERMISOS_DB_PASSWORD  Contraseña de la base de Permission Service.
+#   AUTH0_USERS_CLIENT_SECRET  Secret de la app de Auth0 que lee usuarios.
 name: CD
 
 on:
@@ -32,6 +33,7 @@ jobs:
       DOMINIO: ${{ github.ref_name == 'main' && 'snippetsearcher-prod.duckdns.org' || 'snippetsearcher-dev.duckdns.org' }}
       SNIPPETS_DB_PASSWORD: ${{ secrets.SNIPPETS_DB_PASSWORD }}
       PERMISOS_DB_PASSWORD: ${{ secrets.PERMISOS_DB_PASSWORD }}
+      AUTH0_USERS_CLIENT_SECRET: ${{ secrets.AUTH0_USERS_CLIENT_SECRET }}
     steps:
       - uses: actions/checkout@v4
 
@@ -92,8 +94,8 @@ jobs:
         # comandos: así las contraseñas no quedan en el historial de la VM.
         # --prune borra los servicios que ya no están en el stack.
         run: |
-          printf 'TAG=%s\nSNIPPETS_DB_PASSWORD=%s\nPERMISOS_DB_PASSWORD=%s\nCORS_ALLOWED_ORIGINS=%s\nDOMINIO=%s\n' \
-            "$TAG" "$SNIPPETS_DB_PASSWORD" "$PERMISOS_DB_PASSWORD" "$CORS_ALLOWED_ORIGINS" "$DOMINIO" |
+          printf 'TAG=%s\nSNIPPETS_DB_PASSWORD=%s\nPERMISOS_DB_PASSWORD=%s\nCORS_ALLOWED_ORIGINS=%s\nDOMINIO=%s\nAUTH0_USERS_CLIENT_SECRET=%s\n' \
+            "$TAG" "$SNIPPETS_DB_PASSWORD" "$PERMISOS_DB_PASSWORD" "$CORS_ALLOWED_ORIGINS" "$DOMINIO" "$AUTH0_USERS_CLIENT_SECRET" |
           ssh -i ~/.ssh/vm.pem "$VM" '
             set -e
             set -a; . /dev/stdin; set +a
