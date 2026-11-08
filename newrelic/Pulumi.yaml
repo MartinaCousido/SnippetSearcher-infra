@@ -1,0 +1,11 @@
+name: snippetsearcher-newrelic
+description: Synthetics, alertas y dashboard de New Relic de Snippet Searcher (dev y prod)
+runtime:
+  name: nodejs
+  options:
+    packagemanager: npm
+# El estado (lo que Pulumi ya creó) queda en newrelic/.pulumi/, no en Pulumi
+# Cloud: no hace falta cuenta ni login. Usar siempre los scripts de npm, que
+# corren en newrelic/ y leen newrelic/.env.
+backend:
+  url: file://.
