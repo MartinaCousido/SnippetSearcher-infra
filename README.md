@@ -79,12 +79,12 @@ Coincide con el flujo de trabajo de los repos: lo que se prueba en dev llega a p
 | Reverse proxy | ✅ Definido | **nginx** en los puertos 80 y 443, con la configuración como Swarm `configs`. Ver [Reverse proxy](#reverse-proxy) |
 | HTTPS | ✅ Definido | **Let's Encrypt + DuckDNS**: `snippetsearcher-dev.duckdns.org` y `snippetsearcher-prod.duckdns.org`. El cifrado termina en el `proxy`, en el puerto 443; adentro de la red de Docker se sigue con HTTP. El servicio `certbot` consigue el certificado; la primera vez, nginx arranca con uno **provisorio autofirmado**. Ver [HTTPS](#https) |
 | CORS | ✅ Definido | Snippet Service y Permission Service aceptan solo los origins de la variable `CORS_ALLOWED_ORIGINS`, que se pasa en el stack (ver [Variables del stack](#variables-del-stack)). Dev: el dominio de dev y `http://localhost:5173`. Prod: solo el dominio de prod. Ver [CORS](https://github.com/MartinaCousido/SnippetSearcher#cors) en SnippetSearcher |
-| Secrets | ✅ Definido | Cinco secrets en cada *Environment* de GitHub (`dev` y `prod`). Ver [Secrets](#secrets) |
+| Secrets | ✅ Definido | Seis secrets en cada *Environment* de GitHub (`dev` y `prod`). Ver [Secrets](#secrets) |
 | Auth0 | ✅ Definido | Un solo tenant para dev y prod (`dev-eadjutr73y1lgdc5.us.auth0.com`). Sus recursos se crean con **Pulumi**, en la carpeta `auth0/`. Ver [Auth0](#auth0) y las filas **Auth0** y **Roles y permisos** de [Decisiones técnicas](https://github.com/MartinaCousido/SnippetSearcher#decisiones-técnicas) en SnippetSearcher |
 
 ### Variables del stack
 
-`docker-stack.yml` es el mismo para dev y prod. Lo que cambia entre ambientes son cinco variables:
+`docker-stack.yml` es el mismo para dev y prod. Lo que cambia entre ambientes, o es secreto, son seis variables:
 
 | Variable | Para qué | Ejemplo |
 |---|---|---|
@@ -93,8 +93,9 @@ Coincide con el flujo de trabajo de los repos: lo que se prueba en dev llega a p
 | `PERMISOS_DB_PASSWORD` | Contraseña de la base de Permission Service | — |
 | `CORS_ALLOWED_ORIGINS` | Origins que aceptan Snippet Service y Permission Service (ver [CORS](https://github.com/MartinaCousido/SnippetSearcher#cors)) | dev: `https://snippetsearcher-dev.duckdns.org,http://localhost:5173`. prod: `https://snippetsearcher-prod.duckdns.org` |
 | `DOMINIO` | Dominio del ambiente: el del certificado y el de la redirección a HTTPS | `snippetsearcher-dev.duckdns.org` o `snippetsearcher-prod.duckdns.org` |
+| `AUTH0_USERS_CLIENT_SECRET` | Secret de la app `snippetsearcher-users-reader`, con la que Snippet Service lee usuarios de Auth0 (módulo User). Es el mismo en dev y prod, pero es secreto | — |
 
-En las VMs, las pone el workflow de CD. `TAG`, `CORS_ALLOWED_ORIGINS` y `DOMINIO` no son secretos: salen de la rama, en `cd.yml`. Las contraseñas salen de los secrets del *Environment* de GitHub (`dev` o `prod`). Si falta alguna, el deploy se corta con un error que dice cuál.
+En las VMs, las pone el workflow de CD. `TAG`, `CORS_ALLOWED_ORIGINS` y `DOMINIO` no son secretos: salen de la rama, en `cd.yml`. Las contraseñas y el secret de Auth0 salen de los secrets del *Environment* de GitHub (`dev` o `prod`). Si falta alguna, el deploy se corta con un error que dice cuál.
 
 Lo que **no** cambia entre ambientes va escrito en `docker-stack.yml`, como las URLs entre servicios o el usuario de cada base. Entre esos datos están los de Auth0, que Snippet Service y Permission Service usan para validar los tokens:
 
@@ -102,6 +103,7 @@ Lo que **no** cambia entre ambientes va escrito en `docker-stack.yml`, como las 
 |---|---|---|
 | `AUTH0_DOMAIN` | `dev-eadjutr73y1lgdc5.us.auth0.com` | El tenant del que se aceptan tokens (el `iss` del token) |
 | `AUTH0_AUDIENCE` | `https://snippetsearcher-api` | La API para la que tiene que ser el token (el `aud`) |
+| `AUTH0_USERS_CLIENT_ID` | `Z3S1LhEN5c6iXbSUxLVjPVAZSMgGX9U9` | Solo Snippet Service. El client id de `snippetsearcher-users-reader`. Su secret va por variable (arriba) |
 
 Valen lo mismo en dev y prod porque hay un solo tenant, y no son secretos. Ver [Auth0](#auth0).
 
@@ -200,6 +202,7 @@ Los recursos de Auth0 no se crean a mano en el dashboard: están escritos como c
 | Action de login | `rol-por-defecto` | Le da `snippet-user` a cada usuario que inicia sesión sin rol, y agrega los permisos a ese primer token. Saltea a los usuarios con `app_metadata.sinRolPorDefecto` |
 | App *Machine to Machine* | `snippetsearcher-role-assigner` | La usa la Action para asignar el rol. Solo tiene el permiso `update:users` de la Management API |
 | App SPA | `snippetsearcher-ui` | La UI. Acepta `http://localhost:5173` y los dominios de dev y prod. Usa *refresh tokens* con rotación, para no depender de cookies de terceros |
+| App *Machine to Machine* | `snippetsearcher-users-reader` | La usa Snippet Service para buscar usuarios y mostrar el email del autor (módulo User). Solo tiene el permiso `read:users` de la Management API. Su secret va a los Environments (ver [Secrets](#secrets)) |
 | App nativa | `snippetsearcher-token-script` | `npm run token`: consigue un token desde la terminal |
 | Usuarios de prueba | `ana@example.com` y `leo@example.com` con el rol; `sin-rol@example.com` sin rol | Cypress, probar compartir y ver el 403. `example.com` es un dominio reservado que nunca recibe mails |
 
@@ -267,8 +270,10 @@ Viven en los *Environments* `dev` y `prod` de este repo (**Settings → Environm
 | `VM_SSH_KEY` | Contenido completo de la clave `.pem` de la VM |
 | `SNIPPETS_DB_PASSWORD` | Contraseña de la base de Snippet Service |
 | `PERMISOS_DB_PASSWORD` | Contraseña de la base de Permission Service |
+| `AUTH0_USERS_CLIENT_SECRET` | Secret de la app `snippetsearcher-users-reader` de Auth0. Igual en los dos Environments: hay un solo tenant |
 
 - Las contraseñas solo pueden tener letras, números, `-`, `_` y `.`: el deploy las lee como variables de la terminal.
+- `AUTH0_USERS_CLIENT_SECRET` se carga desde Pulumi, sin mostrarlo, con `npm run --silent pulumi -- stack output AUTH0_USERS_CLIENT_SECRET --show-secrets | tr -d '\n' | gh secret set AUTH0_USERS_CLIENT_SECRET --env <dev o prod>`, desde `auth0/`.
 - Postgres toma la contraseña solo cuando crea la base. Cambiarla después obliga a borrar el volumen de la base en la VM, y con él los datos.
 
 ## Deploy automático
