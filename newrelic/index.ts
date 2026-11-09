@@ -242,14 +242,14 @@ for (const ambiente of ambientes) {
     condicion("synthetic", {
         name: "Synthetic que falla",
         description: "Un synthetic falló dos veces en 3 minutos: algo que le importa al usuario no anda.",
-        nrql: { query: `SELECT count(*) FROM SyntheticCheck WHERE result = 'FAILED' AND monitorName LIKE 'Snippet Searcher ${ambiente}:%' FACET monitorName` },
+        // Cuenta todos los chequeos y, de esos, los fallidos: como hay chequeos
+        // cada minuto, siempre llegan datos, y cuando todo pasa el valor es 0 y
+        // el incidente se cierra. (Contando solo los fallidos, sin fallas no
+        // llegaba nada y el incidente quedaba abierto.)
+        nrql: { query: `SELECT filter(count(*), WHERE result = 'FAILED') FROM SyntheticCheck WHERE monitorName LIKE 'Snippet Searcher ${ambiente}:%' FACET monitorName` },
         critical: { operator: "above_or_equals", threshold: 2, thresholdDuration: 180, thresholdOccurrences: "at_least_once" },
         slideBy: 60,
         aggregationWindow: 180,
-        // Sin fallas no llega ningún dato: se cuenta como 0, así el incidente
-        // se cierra solo cuando el synthetic vuelve a pasar.
-        fillOption: "static",
-        fillValue: 0,
     });
 
     // Saturación: mensajes de Redis que no se procesan.
