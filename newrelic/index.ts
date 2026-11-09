@@ -26,7 +26,7 @@ type Ambiente = (typeof ambientes)[number];
 // Los ambientes que ya mandan datos a New Relic. Uno que todavía no reporta
 // (porque no llegó el pase a prod) se crea igual, pero apagado: synthetics en
 // pausa, alertas desactivadas y sin avisos. Si no, avisaría que todo está caído.
-const activos: ReadonlySet<Ambiente> = new Set(["dev"]);
+const activos: ReadonlySet<Ambiente> = new Set(["dev", "prod"]);
 
 // Los servicios con agente Java (APM). En New Relic se llaman "<servicio> (<ambiente>)".
 const serviciosJava = ["snippet-service", "permission-service", "printscript-service", "asset-service"];
@@ -71,23 +71,29 @@ const celular = new newrelic.NotificationDestination("celular", {
     properties: [{ key: "userId", value: mobileUserId }],
 });
 
-const canalMail = new newrelic.NotificationChannel("canal-mail", {
-    accountId,
-    name: "Alertas de Snippet Searcher por mail",
-    type: "EMAIL",
-    product: "IINT",
-    destinationId: mail.id,
-    properties: [{ key: "subject", value: "Snippet Searcher: {{ issueTitle }}" }],
-});
-
-const canalCelular = new newrelic.NotificationChannel("canal-celular", {
-    accountId,
-    name: "Alertas de Snippet Searcher en el celular",
-    type: "MOBILE_PUSH",
-    product: "IINT",
-    destinationId: celular.id,
-    properties: [{ key: "", value: "" }],
-});
+// Los canales (mail y celular) van uno por ambiente: New Relic no deja que dos
+// workflows usen el mismo canal. Los de dev conservan su nombre anterior en
+// Pulumi (alias), así no se recrean.
+const canales = (ambiente: Ambiente) => {
+    const alias = (nombre: string) => (ambiente === "dev" ? { aliases: [{ name: nombre }] } : {});
+    const canalMail = new newrelic.NotificationChannel(`canal-mail-${ambiente}`, {
+        accountId,
+        name: `Alertas de Snippet Searcher ${ambiente} por mail`,
+        type: "EMAIL",
+        product: "IINT",
+        destinationId: mail.id,
+        properties: [{ key: "subject", value: `Snippet Searcher ${ambiente}: {{ issueTitle }}` }],
+    }, alias("canal-mail"));
+    const canalCelular = new newrelic.NotificationChannel(`canal-celular-${ambiente}`, {
+        accountId,
+        name: `Alertas de Snippet Searcher ${ambiente} en el celular`,
+        type: "MOBILE_PUSH",
+        product: "IINT",
+        destinationId: celular.id,
+        properties: [{ key: "", value: "" }],
+    }, alias("canal-celular"));
+    return [canalMail, canalCelular];
+};
 
 // --- Por ambiente: synthetics, alertas y avisos ---------------------------------
 
@@ -236,14 +242,14 @@ for (const ambiente of ambientes) {
     condicion("synthetic", {
         name: "Synthetic que falla",
         description: "Un synthetic falló dos veces en 3 minutos: algo que le importa al usuario no anda.",
-        nrql: { query: `SELECT count(*) FROM SyntheticCheck WHERE result = 'FAILED' AND monitorName LIKE 'Snippet Searcher ${ambiente}:%' FACET monitorName` },
+        // Cuenta todos los chequeos y, de esos, los fallidos: como hay chequeos
+        // cada minuto, siempre llegan datos, y cuando todo pasa el valor es 0 y
+        // el incidente se cierra. (Contando solo los fallidos, sin fallas no
+        // llegaba nada y el incidente quedaba abierto.)
+        nrql: { query: `SELECT filter(count(*), WHERE result = 'FAILED') FROM SyntheticCheck WHERE monitorName LIKE 'Snippet Searcher ${ambiente}:%' FACET monitorName` },
         critical: { operator: "above_or_equals", threshold: 2, thresholdDuration: 180, thresholdOccurrences: "at_least_once" },
         slideBy: 60,
         aggregationWindow: 180,
-        // Sin fallas no llega ningún dato: se cuenta como 0, así el incidente
-        // se cierra solo cuando el synthetic vuelve a pasar.
-        fillOption: "static",
-        fillValue: 0,
     });
 
     // Saturación: mensajes de Redis que no se procesan.
@@ -270,8 +276,7 @@ for (const ambiente of ambientes) {
             }],
         },
         destinations: [
-            { channelId: canalMail.id },
-            { channelId: canalCelular.id },
+            ...canales(ambiente).map(canal => ({ channelId: canal.id })),
         ],
     });
 }

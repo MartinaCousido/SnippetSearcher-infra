@@ -213,7 +213,7 @@ Están escritos como código en [`newrelic/index.ts`](newrelic/index.ts), con **
 | **Avisos** | Cada incidente avisa por mail y por notificación push en la app de New Relic del celular |
 | **Dashboard** | `Snippet Searcher`, una página por ambiente: alertas abiertas, contenedores corriendo por servicio, % de synthetics que pasan, pedidos, errores y p99 por servicio, CPU, memoria y disco de la VM, pendientes de Redis y los logs con error |
 
-- **Ambientes activos:** un ambiente que todavía no manda datos se crea **apagado** (`activos` en `index.ts`): synthetics en pausa, alertas desactivadas y sin avisos; si no, avisaría que todo está caído. Hoy está activo dev; prod se prende con el pase a prod.
+- **Ambientes activos:** un ambiente que todavía no manda datos se crea **apagado** (`activos` en `index.ts`): synthetics en pausa, alertas desactivadas y sin avisos; si no, avisaría que todo está caído. Hoy están activos los dos. Los canales de aviso (mail y celular) van uno por ambiente: New Relic no deja que dos workflows compartan un canal.
 - Comandos, desde `newrelic/`: `npm run preview` (qué cambiaría), `npm run up` (lo aplica), `npm run outputs` (el link del dashboard).
 
 ## Auth0
