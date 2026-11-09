@@ -136,6 +136,7 @@ El servicio `proxy` es un **nginx** que recibe todo en los puertos 80 y 443 y le
 |---|---|---|
 | `POST /api/permissions/<id>/share` | `permission-service` | `/api/permissions/<id>/share` → `/permissions/<id>/share` |
 | el resto de `/api/permissions/…` y `/api/actuator…` | — (404) | No se publican: ver abajo |
+| `/api/snippets/<id>/execute` (WebSocket) | `snippet-service` | `/api/snippets/<id>/execute` → `/snippets/<id>/execute` |
 | `/api/…` (`snippets`, `rules`, `languages`) | `snippet-service` | `/api/snippets` → `/snippets` |
 | todo lo demás | `ui` | `/snippet/<id>` → `/snippet/<id>` |
 
@@ -143,6 +144,7 @@ El servicio `proxy` es un **nginx** que recibe todo en los puertos 80 y 443 y le
 - De Permission Service se publica solo **compartir**, que es lo único que usa la UI. Registrar owner, borrar permisos y "¿puede leer o escribir?" los usa Snippet Service por la red interna: si se pudieran llamar desde afuera, un usuario podría, por ejemplo, borrar los permisos de su snippet y dejarlo huérfano. Tampoco se publica el health de los servicios (`/api/actuator`), porque muestra datos internos; adentro de la red y en local sigue igual.
 - La UI tiene una sola `BACKEND_URL` (`/api`, relativa a la página) y queda en la misma dirección que los servicios, así que el navegador no aplica CORS. Igual se configura en cada servicio: ver la fila **CORS** de [Decisiones técnicas](#decisiones-técnicas).
 - Le pasa al servicio los headers `Host`, `X-Forwarded-For` y `X-Forwarded-Proto` (si entró por HTTP o HTTPS). `X-Forwarded-For` **no** lleva la IP del usuario: los puertos se publican en modo `ingress` de Swarm, que le cambia la IP de origen al pedido, y el proxy ve una IP interna de Docker. Para ver la IP real habría que publicar los puertos en modo `host`.
+- Deja pasar el **WebSocket** de la ejecución en vivo (US-9, US-10): reenvía los headers `Upgrade` y `Connection`, que piden pasar de HTTP a WebSocket, y espera hasta **10 minutos** sin mensajes (nginx trae 60 s). Snippet Service corta antes, a los 5 minutos sin un input. Ver **Ejecución en vivo** en [Decisiones técnicas](https://github.com/MartinaCousido/SnippetSearcher#decisiones-técnicas) de SnippetSearcher.
 - Acepta pedidos de hasta **5 MB** (`client_max_body_size`), para crear snippets desde un archivo (US-1). nginx trae 1 MB por defecto.
 - Si un servicio está caído, responde **502** o **504** con una página propia ([`nginx/errores/no-disponible.html`](nginx/errores/no-disponible.html)), y el resto sigue andando. Espera hasta 5 segundos para conectarse a un servicio (`proxy_connect_timeout`), en lugar de los 60 que trae nginx.
 - El puerto 80 solo atiende el desafío de Let's Encrypt y redirige todo lo demás a HTTPS (301). Ver [HTTPS](#https).
